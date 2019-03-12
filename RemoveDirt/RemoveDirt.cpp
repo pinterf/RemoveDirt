@@ -1852,7 +1852,7 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   select = new unsigned char[vi.num_frames];
 #endif
   child->SetCacheHints(CACHE_NOTHING, 0);
-  restore->SetCacheHints(CACHE_RANGE, 0);
+  restore->SetCacheHints(CACHE_GENERIC, 0);
   lastframe = vi.num_frames - 1;
   before_offset = after_offset = 0;
   if (after == NULL)
@@ -1862,8 +1862,8 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   }
   if (before != NULL)
   {
-    after->SetCacheHints(CACHE_RANGE, 0);
-    before->SetCacheHints(CACHE_RANGE, 0);
+    after->SetCacheHints(CACHE_GENERIC, 0);
+    before->SetCacheHints(CACHE_GENERIC, 0);
   }
   else
   {
@@ -1871,10 +1871,10 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
     before_offset = -1;
     after_offset = 1;
     before = after;
-    after->SetCacheHints(CACHE_RANGE, 2);
+    after->SetCacheHints(CACHE_GENERIC, 2);
   }
   if (alternative == NULL) alternative = restore;
-  else alternative->SetCacheHints(CACHE_RANGE, 0);
+  else alternative->SetCacheHints(CACHE_GENERIC, 0);
   CompareVideoInfo(vi, restore->GetVideoInfo(), "RemoveDirt");
   CompareVideoInfo(vi, before->GetVideoInfo(), "RemoveDirt");
   CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt");
@@ -2068,10 +2068,10 @@ public:
     CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect");
     hblocks = vi.width / (2 * SSE_INCREMENT);
     incpitch = hblocks * (-2 * SSE_INCREMENT);
-    scene_begin->SetCacheHints(CACHE_RANGE, 0);
-    scene_end->SetCacheHints(CACHE_RANGE, 0);
-    if (gcache >= 0) global_motion->SetCacheHints(CACHE_RANGE, 0);
-    if (cache >= 0) child->SetCacheHints(CACHE_RANGE, cache);
+    scene_begin->SetCacheHints(CACHE_GENERIC, 0);
+    scene_end->SetCacheHints(CACHE_GENERIC, 0);
+    if (gcache >= 0) global_motion->SetCacheHints(CACHE_GENERIC, 0);
+    if (cache >= 0) child->SetCacheHints(CACHE_GENERIC, cache);
   }
 };
 
@@ -2082,8 +2082,17 @@ AVSValue __cdecl CreateSCSelect(AVSValue args, void* user_data, IScriptEnvironme
     , args[DEBUG].AsBool(false), args[PLANAR].AsBool(false), args[CACHE].AsInt(2), args[GCACHE].AsInt(0));
 };
 
-extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit2(IScriptEnvironment* env)
-{
+/* New 2.6 requirement!!! */
+// Declare and initialise server pointers static storage.
+const AVS_Linkage *AVS_linkage = 0;
+
+/* New 2.6 requirement!!! */
+// DLL entry point called from LoadPlugin() to setup a user plugin.
+extern "C" __declspec(dllexport) const char* __stdcall
+AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
+  /* New 2.6 requirment!!! */
+  // Save the server pointers.
+  AVS_linkage = vectors;
   AVSenvironment = env;
 #ifdef  DEBUG_NAME
   env->AddFunction("DSCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
