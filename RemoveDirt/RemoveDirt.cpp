@@ -17,6 +17,7 @@
 // Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA, or visit
 // http://www.gnu.org/copyleft/gpl.html .
 
+#include "emmintrin.h"
 
 //
 // Part 1: options at compile time
@@ -119,7 +120,7 @@ void    debug_printf(const char *format, ...)
 __declspec(align(16))
 unsigned    blockcompare_result[4]; // must be global otherwise compiler may generate incorrect alignment
 
-unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
 {
 #ifdef  STATISTICS
   ++compare8;
@@ -178,8 +179,13 @@ unsigned __stdcall SSE2test(const BYTE *p1, int pitch1)
 #endif
 
 // mm7 contains already the noise level!
-unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
+  // __m128i xmm7 = _mm_set1_epi8(noise);
+  __asm pxor xmm1, xmm1
+  __asm movd xmm7, noise
+  __asm pshufb xmm7, xmm1
+
 #ifdef  STATISTICS
   ++compare8;
 #endif
@@ -244,8 +250,13 @@ static const __declspec(align(SSESIZE)) BYTE excessadd[SSESIZE]
 = { 4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4 };
 
 
-unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
+  // __m128i xmm7 = _mm_set1_epi8(noise);
+  __asm pxor xmm1, xmm1
+  __asm movd xmm7, noise
+  __asm pshufb xmm7, xmm1
+
 #ifdef  STATISTICS
   ++compare16;
 #endif
@@ -310,8 +321,7 @@ unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int 
 }
 
 
-#ifdef  TEST_BLOCKCOMPARE
-unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
 {
   pitch1 -= 8;
   pitch2 -= 8;
@@ -334,15 +344,16 @@ unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, i
   return res;
 }
 
+template<int blksizeX, int blksizeY>
 unsigned __stdcall test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   pitch1 -= 8;
   pitch2 -= 8;
   int   res = 0;
-  int   i = 8;
+  int   i = blksizeY;
   do
   {
-    int j = 8;
+    int j = blksizeX;
     do
     {
       int diff = p1[0] - p2[0];
@@ -359,15 +370,16 @@ unsigned __stdcall test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, 
   return res;
 }
 
+template<int blksizeX, int blksizeY>
 unsigned __stdcall test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   pitch1 -= 8;
   pitch2 -= 8;
   int   count = 0;
-  int   i = 8;
+  int   i = blksizeY;
   do
   {
-    int j = 8;
+    int j = blksizeX;
     do
     {
       int diff = p1[0] - p2[0];
@@ -380,11 +392,9 @@ unsigned __stdcall test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2,
   } while (--i);
   return count;
 }
-#endif  // TEST_BLOCKCOMPARE
 
 
-
-void __stdcall SADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch)
+void __stdcall SADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch, int /*noise*/)
 {
 #ifdef  STATISTICS
   ++compare16;
@@ -422,8 +432,13 @@ void __stdcall SADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch)
 }
 
 // xmm7 contains already the noise level!
-void __stdcall NSADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch)
+void __stdcall NSADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch, int noise)
 {
+  // __m128i xmm7 = _mm_set1_epi8(noise);
+  __asm pxor xmm1, xmm1
+  __asm movd xmm7, noise
+  __asm pshufb xmm7, xmm1
+
 #ifdef  STATISTICS
   ++compare16;
 #endif
@@ -513,8 +528,13 @@ void __stdcall NSADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch)
 
 static const __declspec(align(SSESIZE)) BYTE excessaddSSE2[SSESIZE] = { 8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8 };
 
-void __stdcall ExcessPixelsSSE2(const BYTE *p1, const BYTE *p2, int pitch)
+void __stdcall ExcessPixelsSSE2(const BYTE *p1, const BYTE *p2, int pitch, int noise)
 {
+  // __m128i xmm7 = _mm_set1_epi8(noise);
+  __asm pxor xmm1, xmm1
+  __asm movd xmm7, noise
+  __asm pshufb xmm7, xmm1
+
 #ifdef  STATISTICS
   ++compare16;
 #endif
@@ -604,40 +624,33 @@ void __stdcall ExcessPixelsSSE2(const BYTE *p1, const BYTE *p2, int pitch)
   __asm movdqa      blockcompare_result, xmm0
 }
 
-#define SSE2init()  \
-__asm   movdqu      xmm7,               [ecx].noiselevel
-
 //
 // Part 5: Motion Detection
 //
 
 class   MotionDetection
 {
-  __declspec(align(SSESIZE)) BYTE noiselevel[SSESIZE];
   unsigned char *blockproperties_addr;
 protected:
   int   pline, nline;
 public:
+  int noise;
   int   motionblocks;
   unsigned char *blockproperties;
   int   linewidth;
-  unsigned(__stdcall *blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2);
+  unsigned(__stdcall *blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
   int   hblocks, vblocks;
   unsigned threshold;
 
-  void(__stdcall *blockcompareSSE2)(const BYTE *p1, const BYTE *p2, int pitch);
+  void(__stdcall *blockcompareSSE2)(const BYTE *p1, const BYTE *p2, int pitch, int noise);
   int   hblocksSSE2;        // = hblocks / 2
   bool remainderSSE2;   // = hblocks & 1
   int   linewidthSSE2;
 
-#ifdef  TEST_BLOCKCOMPARE
   unsigned(__stdcall *test_blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
-#endif
 
-  void  markblocks1(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+  void  markblocks1(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
   {
-    SSE2init()
-
     int inc1 = MOTIONBLOCKHEIGHT * pitch1 - linewidth;
     int inc2 = MOTIONBLOCKHEIGHT * pitch2 - linewidth;
     unsigned char *properties = blockproperties;
@@ -651,13 +664,13 @@ public:
         properties[0] = 0;
 #ifdef  TEST_BLOCKCOMPARE
         int d;
-        if ((d = blockcompare(p1, pitch1, p2, pitch2) - test_blockcompare(p1, pitch1, p2, pitch2, noiselevel[0])) != 0)
+        if ((d = blockcompare(p1, pitch1, p2, pitch2) - test_blockcompare(p1, pitch1, p2, pitch2, noise)) != 0)
           debug_printf("blockcompare test fails with difference = %i\n", d);
 #endif
 #ifdef  SSE2TEST
         if (SSE2test(p1, pitch1) + SSE2test(p2, pitch2) != 0) debug_printf("SSE2 failure\n");
 #endif
-        if (blockcompare(p1, pitch1, p2, pitch2) >= threshold)
+        if (blockcompare(p1, pitch1, p2, pitch2, noise) >= threshold)
         {
           properties[0] = MOTION_FLAG1;
           ++motionblocks;
@@ -673,10 +686,8 @@ public:
     } while (--j);
   }
 
-  void  markblocks2(const BYTE *p1, const BYTE *p2, int pitch)
+  void  markblocks2(const BYTE *p1, const BYTE *p2, int pitch, int noise)
   {
-    SSE2init();
-
     int inc = MOTIONBLOCKHEIGHT * pitch - linewidthSSE2;
     unsigned char *properties = blockproperties;
 
@@ -686,7 +697,7 @@ public:
       int i = hblocksSSE2;
       do
       {
-        blockcompareSSE2(p1, p2, pitch);
+        blockcompareSSE2(p1, p2, pitch, noise);
         properties[0] = properties[1] = 0;
         if (blockcompare_result[0] >= threshold)
         {
@@ -705,7 +716,7 @@ public:
       if (remainderSSE2)
       {
         properties[0] = 0;
-        if (blockcompare(p1, pitch, p2, pitch) >= threshold)
+        if (blockcompare(p1, pitch, p2, pitch, noise) >= threshold)
         {
           properties[0] = MOTION_FLAG1;
           ++motionblocks;
@@ -722,12 +733,15 @@ public:
   {
     motionblocks = 0;
     if (((pitch1 - pitch2) | (((unsigned)p1) & 15) | (((unsigned)p2) & 15)) == 0)
-      markblocks2(p1, p2, pitch1);
-    else    markblocks1(p1, pitch1, p2, pitch2);
+      markblocks2(p1, p2, pitch1, noise); // pitches are the same and both are mod16
+    else 
+      markblocks1(p1, pitch1, p2, pitch2, noise); // different pitches or not mod16
   }
 
-  MotionDetection(int   width, int height, unsigned _threshold, int noise, int noisy, IScriptEnvironment* env) : threshold(_threshold)
+  MotionDetection(int   width, int height, unsigned _threshold, int _noise, int _noisy, IScriptEnvironment* env) : threshold(_threshold)
   {
+    noise = _noise;
+
     hblocks = (linewidth = width) / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
@@ -740,26 +754,22 @@ public:
     // old non-SSE2 check
     // if ((hblocks == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
 
-    blockcompare = SADcompare;
-#ifdef  TEST_BLOCKCOMPARE
+    blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? SADcompare : test_SADcompare;
     test_blockcompare = test_SADcompare;
-#endif
     if (noise > 0)
     {
       blockcompareSSE2 = NSADcompareSSE2;
 #ifdef  TEST_BLOCKCOMPARE
       test_blockcompare = test_NSADcompare;
 #endif
-      blockcompare = NSADcompare;
-      memset(noiselevel, noise, SSESIZE);
-      if (noisy >= 0)
+      blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? NSADcompare : test_NSADcompare<8,8>;
+
+      if (_noisy >= 0)
       {
         blockcompareSSE2 = ExcessPixelsSSE2;
-#ifdef  TEST_BLOCKCOMPARE
-        test_blockcompare = test_ExcessPixels;
-#endif
-        blockcompare = ExcessPixels;
-        threshold = noisy;
+        test_blockcompare = test_ExcessPixels<8,8>;
+        blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? ExcessPixels : test_ExcessPixels<8,8>;
+        threshold = _noisy;
       }
     }
     int size;
@@ -1041,7 +1051,6 @@ int __stdcall vertical_diff(const BYTE *p, int pitch)
   __asm movd        eax, mm0
 }
 
-#ifdef  TEST_VERTICAL_DIFF
 int __stdcall test_vertical_diff(const BYTE *p, int pitch)
 {
   int   res = 0;
@@ -1055,7 +1064,6 @@ int __stdcall test_vertical_diff(const BYTE *p, int pitch)
   } while (--i);
   return    res;
 }
-#endif
 
 int __stdcall vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
@@ -1088,7 +1096,6 @@ int __stdcall vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
   __asm movd        eax, mm0
 }
 
-#ifdef  TEST_VERTICAL_DIFF_CHROMA
 int __stdcall test_vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
   int res = 0;
@@ -1139,7 +1146,6 @@ int __stdcall test_vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int p
 
   return    (res1 + res2 + 1) / 2;
 }
-#endif  // TEST_VERTICAL_DIFF_CHROMA
 
 int __stdcall vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
@@ -1331,9 +1337,7 @@ class   Postprocessing
   int   cthreshold;
   int(__stdcall *vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
   void(__stdcall *copy_chroma)(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch);
-#ifdef  TEST_VERTICAL_DIFF_CHROMA
   int(__stdcall *test_vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
-#endif
 
 public:
   int       loops;
@@ -1581,21 +1585,17 @@ public:
     : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, noise, noisy, env)
     , pthreshold(_pthreshold), cthreshold(_cthreshold)
   {
-#ifdef  TEST_VERTICAL_DIFF_CHROMA
     test_vertical_diff_chroma = test_vertical_diff_yv12_chroma;
-#endif
-    vertical_diff_chroma = vertical_diff_yv12_chroma;
+    vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_yv12_chroma : test_vertical_diff_yv12_chroma;
     copy_chroma = copy_yv12_chroma;
     linewidthUV = linewidth / 2;
     chromaheight = MOTIONBLOCKHEIGHT / 2;
     if (yuy2)
     {
       chromaheight *= 2;
-      vertical_diff_chroma = vertical_diff_yuy2_chroma;
+      vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_yuy2_chroma : test_vertical_diff_yuy2_chroma;
       copy_chroma = copy_yuy2_chroma;
-#ifdef  TEST_VERTICAL_DIFF_CHROMA
       test_vertical_diff_chroma = test_vertical_diff_yuy2_chroma;
-#endif
     }
     chromaheightm = chromaheight - 1;
   }
