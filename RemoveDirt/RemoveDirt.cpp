@@ -115,10 +115,10 @@ static  IScriptEnvironment  *AVSenvironment;
 
 void    debug_printf(const char *format, ...)
 {
-  char  buffer[200];
+  char buffer[200];
   va_list   args;
   va_start(args, format);
-  vsprintf(buffer, format, args);
+  vsprintf_s(buffer, format, args);
   va_end(args);
   OutputDebugString(buffer);
 }
@@ -989,6 +989,7 @@ private:
   int           dist, dist1, dist2, hinterior, vinterior, colinc, isumline, isuminc1, isuminc2;
   void  (MotionDetectionDist::*processneighbours)(void);
 
+  using fn_processneighbours_t = void(MotionDetectionDist::*)(void);
 
   void  markneighbours();
 
@@ -1069,7 +1070,7 @@ public:
   MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, unsigned threshold, int noise, int noisy)
     : MotionDetection(width, height, threshold, noise, noisy)
   {
-    static void (MotionDetectionDist::*neighbourproc[3])(void) = { processneighbours1, processneighbours2, processneighbours3 };
+    fn_processneighbours_t neighbourproc[] = { &MotionDetectionDist::processneighbours1, &MotionDetectionDist::processneighbours2, &MotionDetectionDist::processneighbours3 };
     blocks = hblocks * vblocks;
     isum = new unsigned[blocks];
     if ((unsigned)dmode >= 3) dmode = 0;
@@ -1906,20 +1907,20 @@ public:
 
   AccessFrame(int   width, bool yuy2)
   {
-    _GetPitchUV = YV12_GetPitchUV;
-    _GetReadPtrU = YV12_GetReadPtrU;
-    _GetReadPtrV = YV12_GetReadPtrV;
-    _GetWritePtrU = YV12_GetWritePtrU;
-    _GetWritePtrV = YV12_GetWritePtrV;
+    _GetPitchUV = &AccessFrame::YV12_GetPitchUV;
+    _GetReadPtrU = &AccessFrame::YV12_GetReadPtrU;
+    _GetReadPtrV = &AccessFrame::YV12_GetReadPtrV;
+    _GetWritePtrU = &AccessFrame::YV12_GetWritePtrU;
+    _GetWritePtrV = &AccessFrame::YV12_GetWritePtrV;
     if (yuy2)
     {
       voffset = (uoffset = width) + width / 2;
 
-      _GetPitchUV = YUY2_GetPitchUV;
-      _GetReadPtrU = YUY2_GetReadPtrU;
-      _GetReadPtrV = YUY2_GetReadPtrV;
-      _GetWritePtrU = YUY2_GetWritePtrU;
-      _GetWritePtrV = YUY2_GetWritePtrV;
+      _GetPitchUV = &AccessFrame::YUY2_GetPitchUV;
+      _GetReadPtrU = &AccessFrame::YUY2_GetReadPtrU;
+      _GetReadPtrV = &AccessFrame::YUY2_GetReadPtrV;
+      _GetWritePtrU = &AccessFrame::YUY2_GetWritePtrU;
+      _GetWritePtrV = &AccessFrame::YUY2_GetWritePtrV;
     }
   }
 };
@@ -2248,7 +2249,7 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
   {
     IClip *selected;
-    char *debugmsg;
+    const char *debugmsg;
     if (n == 0)
     {
     set_begin:
