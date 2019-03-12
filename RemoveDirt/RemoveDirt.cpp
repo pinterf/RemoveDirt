@@ -22,14 +22,9 @@
 // Part 1: options at compile time
 //
 
-//#define ISSE 2
 //#define DEBUG_NAME
 //#define SSE2TEST
 //#define RANGEFILES 
-
-#ifndef ISSE
-#define ISSE 0
-#endif
 
 #define FHANDLERS 9
 //#define STATISTICS // only for internal use
@@ -72,11 +67,7 @@
 #define DEFAULT_TOLERANCE   12
 #define DEFAULT_NOISE       0
 
-#if ISSE > 1
 #define SSESIZE     16
-#else
-#define SSESIZE     8
-#endif
 
 //
 // Part 2: include files and basic definitions
@@ -127,10 +118,8 @@ void    debug_printf(const char *format, ...)
 // Part 4: block comparison functions
 //
 
-#if ISSE > 1
 __declspec(align(16))
 unsigned    blockcompare_result[4]; // must be global otherwise compiler may generate incorrect alignment
-#endif
 
 unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
 {
@@ -202,7 +191,7 @@ unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int p
   __asm lea         ecx, [edx + 2 * edx]
     __asm   lea         edi, [esi + 2 * esi]
     __asm   mov         ebx, p2
-#if ISSE > 1
+
   __asm movq        xmm0, QWORD PTR[eax]
     __asm   movq        xmm2, QWORD PTR[eax + edx]
     __asm   movhps      xmm0, [eax + 2 * edx]
@@ -251,94 +240,10 @@ unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int p
   __asm movhlps     xmm1, xmm0
   __asm paddd       xmm0, xmm1
   __asm movd        eax, xmm0
-#else   // ISSE > 1
-  __asm movq        mm0, [eax]
-    __asm   movq        mm2, [eax + edx]
-    __asm   movq        mm3, mm0
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx]
-    __asm   movq        mm6, [ebx + esi]
-    __asm   psubusb     mm0, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm0, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm psadbw      mm0, mm5
-  __asm psadbw      mm6, mm2
-  __asm movq        mm1, [eax + 2 * edx]
-    __asm   paddd       mm0, mm6
-  __asm movq        mm2, [eax + ecx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx + 2 * esi]
-    __asm   movq        mm6, [ebx + edi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm lea         eax, [eax + 4 * edx]
-    __asm   psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm lea         ebx, [ebx + 4 * esi]
-    __asm   psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm psadbw      mm5, mm1
-  __asm psadbw      mm6, mm2
-  __asm paddd       mm0, mm5
-  __asm movq        mm1, [eax]
-    __asm   paddd       mm0, mm6
-  __asm movq        mm2, [eax + edx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx]
-    __asm   movq        mm6, [ebx + esi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm psadbw      mm5, mm1
-  __asm psadbw      mm6, mm2
-  __asm paddd       mm0, mm5
-  __asm movq        mm1, [eax + 2 * edx]
-    __asm   paddd       mm0, mm6
-  __asm movq        mm2, [eax + ecx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx + 2 * esi]
-    __asm   movq        mm6, [ebx + edi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm psadbw      mm5, mm1
-  __asm psadbw      mm6, mm2
-  __asm paddd       mm0, mm5
-  __asm paddd       mm0, mm6
-
-  __asm movd        eax, mm0
-#endif
 }
 
 static const __declspec(align(SSESIZE)) BYTE excessadd[SSESIZE]
-#if ISSE > 1
 = { 4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4 };
-#else
-= { 8,8,8,8,8,8,8,8 };
-#endif
 
 
 unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
@@ -352,7 +257,7 @@ unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int 
   __asm lea         ecx, [edx + 2 * edx]
     __asm   lea         edi, [esi + 2 * esi]
     __asm   mov         ebx, p2
-#if ISSE > 1
+
   __asm movq        xmm0, QWORD PTR[eax]
     __asm   movq        xmm2, QWORD PTR[eax + edx]
     __asm   movhps      xmm0, [eax + 2 * edx]
@@ -404,93 +309,8 @@ unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int 
   __asm movhlps     xmm1, xmm0
   __asm paddd       xmm0, xmm1
   __asm movd        eax, xmm0
-#else   // ISSE > 1
-  __asm movq        mm0, [eax]
-    __asm   movq        mm2, [eax + edx]
-    __asm   movq        mm3, mm0
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx]
-    __asm   movq        mm6, [ebx + esi]
-    __asm   psubusb     mm0, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm0, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm pcmpeqb     mm0, mm5
-  __asm pcmpeqb     mm6, mm2
-  __asm movq        mm1, [eax + 2 * edx]
-    __asm   paddb       mm0, mm6
-  __asm movq        mm2, [eax + ecx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx + 2 * esi]
-    __asm   movq        mm6, [ebx + edi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm lea         eax, [eax + 4 * edx]
-    __asm   psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm lea         ebx, [ebx + 4 * esi]
-    __asm   psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm pcmpeqb     mm5, mm1
-  __asm pcmpeqb     mm6, mm2
-  __asm paddb       mm0, mm5
-  __asm movq        mm1, [eax]
-    __asm   paddb       mm0, mm6
-  __asm movq        mm2, [eax + edx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx]
-    __asm   movq        mm6, [ebx + esi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm pcmpeqb     mm5, mm1
-  __asm pcmpeqb     mm6, mm2
-  __asm paddb       mm0, mm5
-  __asm movq        mm1, [eax + 2 * edx]
-    __asm   paddb       mm0, mm6
-  __asm movq        mm2, [eax + ecx]
-
-    __asm   movq        mm3, mm1
-  __asm movq        mm4, mm2
-  __asm movq        mm5, [ebx + 2 * esi]
-    __asm   movq        mm6, [ebx + edi]
-    __asm   psubusb     mm1, mm5
-  __asm psubusb     mm2, mm6
-  __asm psubusb     mm5, mm3
-  __asm psubusb     mm6, mm4
-  __asm psubusb     mm1, mm7
-  __asm psubusb     mm2, mm7
-  __asm psubusb     mm5, mm7
-  __asm psubusb     mm6, mm7
-  __asm pcmpeqb     mm5, mm1
-  __asm pcmpeqb     mm6, mm2
-  __asm paddb       mm0, mm5
-  __asm pxor        mm1, mm1
-  __asm paddb       mm0, mm6
-  __asm paddb       mm0, excessadd
-  __asm psadbw      mm0, mm1
-  __asm movd        eax, mm0
-#endif  // ISSE > 1
 }
 
-
-#define mminit()    \
-__asm   movq        mm7,                [ecx].noiselevel    
 
 #ifdef  TEST_BLOCKCOMPARE
 unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
@@ -566,7 +386,6 @@ unsigned __stdcall test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2,
 
 
 
-#if ISSE > 1
 void __stdcall SADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch)
 {
 #ifdef  STATISTICS
@@ -790,8 +609,6 @@ void __stdcall ExcessPixelsSSE2(const BYTE *p1, const BYTE *p2, int pitch)
 #define SSE2init()  \
 __asm   movdqu      xmm7,               [ecx].noiselevel
 
-#endif  // ISSE > 1
-
 //
 // Part 5: Motion Detection
 //
@@ -810,30 +627,19 @@ public:
   int   hblocks, vblocks;
   unsigned threshold;
 
-#if ISSE > 1
   void(__stdcall *blockcompareSSE2)(const BYTE *p1, const BYTE *p2, int pitch);
   int   hblocksSSE2;        // = hblocks / 2
   bool remainderSSE2;   // = hblocks & 1
   int   linewidthSSE2;
-#endif
 
 #ifdef  TEST_BLOCKCOMPARE
   unsigned(__stdcall *test_blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
 #endif
 
-#if ISSE > 1
   void  markblocks1(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
   {
     SSE2init()
-#else
-  void  markblocks(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
-  {
-#endif
-    mminit()
 
-#if ISSE <= 1
-      motionblocks = 0;
-#endif
     int inc1 = MOTIONBLOCKHEIGHT * pitch1 - linewidth;
     int inc2 = MOTIONBLOCKHEIGHT * pitch2 - linewidth;
     unsigned char *properties = blockproperties;
@@ -869,7 +675,6 @@ public:
     } while (--j);
   }
 
-#if ISSE > 1
   void  markblocks2(const BYTE *p1, const BYTE *p2, int pitch)
   {
     SSE2init();
@@ -922,31 +727,28 @@ public:
       markblocks2(p1, p2, pitch1);
     else    markblocks1(p1, pitch1, p2, pitch2);
   }
-#endif  // ISSE > 1
 
   MotionDetection(int   width, int height, unsigned _threshold, int noise, int noisy) : threshold(_threshold)
   {
     hblocks = (linewidth = width) / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
-#if ISSE > 1
     linewidthSSE2 = linewidth;
     hblocksSSE2 = hblocks / 2;
     if ((remainderSSE2 = (hblocks & 1)) != 0) linewidthSSE2 -= MOTIONBLOCKWIDTH;
     if ((hblocksSSE2 == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
     blockcompareSSE2 = SADcompareSSE2;
-#else
-    if ((hblocks == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
-#endif
+
+    // old non-SSE2 check
+    // if ((hblocks == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
+
     blockcompare = SADcompare;
 #ifdef  TEST_BLOCKCOMPARE
     test_blockcompare = test_SADcompare;
 #endif
     if (noise > 0)
     {
-#if ISSE > 1
       blockcompareSSE2 = NSADcompareSSE2;
-#endif
 #ifdef  TEST_BLOCKCOMPARE
       test_blockcompare = test_NSADcompare;
 #endif
@@ -954,9 +756,7 @@ public:
       memset(noiselevel, noise, SSESIZE);
       if (noisy >= 0)
       {
-#if ISSE > 1
         blockcompareSSE2 = ExcessPixelsSSE2;
-#endif
 #ifdef  TEST_BLOCKCOMPARE
         test_blockcompare = test_ExcessPixels;
 #endif
@@ -2119,14 +1919,9 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
 
 }
 
-#if     ISSE > 1
 #define SSE_INCREMENT   16
 #define SSE_MOVE        movdqu
-#if     ISSE > 2
 #define SSE3_MOVE       lddqu
-#else
-#define SSE3_MOVE       movdqu
-#endif
 #define SSE_RMOVE       movdqa
 #define SSE0            xmm0
 #define SSE1            xmm1
@@ -2136,28 +1931,8 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
 #define SSE5            xmm5
 #define SSE6            xmm6
 #define SSE7            xmm7
-#define SSE_EMMS    
-#else
-#define SSE_INCREMENT   8
-#define SSE_MOVE        movq
-#define SSE3_MOVE       movq
-#define SSE_RMOVE       movq
-#define SSE0            mm0
-#define SSE1            mm1
-#define SSE2            mm2
-#define SSE3            mm3
-#define SSE4            mm4
-#define SSE5            mm5
-#define SSE6            mm6
-#define SSE7            mm7
-#define SSE_EMMS        __asm   emms
-#endif  // ISSE
 
-#if     ISSE > 1
 static  inline unsigned aligned_diff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
-#else
-static  unsigned gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
-#endif
 {
   __asm pxor        SSE0, SSE0
   __asm mov         eax, incpitch
@@ -2172,11 +1947,11 @@ static  unsigned gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch
   __asm align       16
   __asm _loop:
   __asm SSE_RMOVE   SSE2, [esi]
-    __asm   SSE_RMOVE   SSE3, [esi + SSE_INCREMENT]
-    __asm   psadbw      SSE2, [edi]
-    __asm   add         esi, 2 * SSE_INCREMENT
+  __asm SSE_RMOVE   SSE3, [esi + SSE_INCREMENT]
+  __asm psadbw      SSE2, [edi]
+  __asm add         esi, 2 * SSE_INCREMENT
   __asm psadbw      SSE3, [edi + SSE_INCREMENT]
-    __asm   paddd       SSE0, SSE2
+  __asm paddd       SSE0, SSE2
   __asm add         edi, 2 * SSE_INCREMENT
   __asm paddd       SSE1, SSE3
   __asm loop        _loop
@@ -2189,7 +1964,6 @@ static  unsigned gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch
   __asm movd        eax, SSE0
 }
 
-#if     ISSE > 1
 static  inline unsigned unaligned_diff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
 {
   __asm pxor        SSE0, SSE0
@@ -2205,11 +1979,11 @@ static  inline unsigned unaligned_diff(const BYTE *sp1, int spitch1, const BYTE 
   __asm align       16
   __asm _loop:
   __asm SSE3_MOVE   SSE2, [esi]
-    __asm   SSE3_MOVE   SSE3, [esi + SSE_INCREMENT]
-    __asm   add         esi, 2 * SSE_INCREMENT
+  __asm SSE3_MOVE   SSE3, [esi + SSE_INCREMENT]
+  __asm add         esi, 2 * SSE_INCREMENT
   __asm SSE3_MOVE   SSE4, [edi]
-    __asm   SSE3_MOVE   SSE5, [edi + SSE_INCREMENT]
-    __asm   psadbw      SSE2, SSE4
+  __asm SSE3_MOVE   SSE5, [edi + SSE_INCREMENT]
+  __asm psadbw      SSE2, SSE4
   __asm add         edi, 2 * SSE_INCREMENT
   __asm psadbw      SSE3, SSE5
   __asm paddd       SSE0, SSE2
@@ -2227,11 +2001,11 @@ static  inline unsigned unaligned_diff(const BYTE *sp1, int spitch1, const BYTE 
 static unsigned gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
 {
   if ((((unsigned)sp1 & (SSE_INCREMENT - 1)) + ((unsigned)sp2 & (SSE_INCREMENT - 1))) == 0)
-    aligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
-  else unaligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
+    return aligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
+  else
+    return unaligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
 
 }
-#endif // ISSE > 1
 
 #define SPOINTER(p) p.operator->()
 
@@ -2276,8 +2050,7 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
         lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(nf), GetPitchY(nf), hblocks, incpitch, vi.height);
         lnr = n;
       }
-      SSE_EMMS
-        if (dirmult * olddiff < lastdiff) goto set_end;
+      if (dirmult * olddiff < lastdiff) goto set_end;
       if (dirmult * lastdiff < olddiff) goto set_begin;
       debugmsg = "[%u] SCSelect: global motion\n";
       selected = SPOINTER(global_motion);
