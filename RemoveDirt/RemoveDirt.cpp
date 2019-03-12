@@ -98,8 +98,6 @@ unsigned    copy4x8;
 unsigned    copy8x4;
 #endif
 
-static  IScriptEnvironment  *AVSenvironment;
-
 //
 // Part 3: auxiliary functions
 //
@@ -728,7 +726,7 @@ public:
     else    markblocks1(p1, pitch1, p2, pitch2);
   }
 
-  MotionDetection(int   width, int height, unsigned _threshold, int noise, int noisy) : threshold(_threshold)
+  MotionDetection(int   width, int height, unsigned _threshold, int noise, int noisy, IScriptEnvironment* env) : threshold(_threshold)
   {
     hblocks = (linewidth = width) / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
@@ -736,7 +734,7 @@ public:
     linewidthSSE2 = linewidth;
     hblocksSSE2 = hblocks / 2;
     if ((remainderSSE2 = (hblocks & 1)) != 0) linewidthSSE2 -= MOTIONBLOCKWIDTH;
-    if ((hblocksSSE2 == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
+    if ((hblocksSSE2 == 0) || (vblocks == 0)) env->ThrowError("RemoveDirt: width or height of the clip too small");
     blockcompareSSE2 = SADcompareSSE2;
 
     // old non-SSE2 check
@@ -867,8 +865,8 @@ public:
     }
   }
 
-  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, unsigned threshold, int noise, int noisy)
-    : MotionDetection(width, height, threshold, noise, noisy)
+  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, unsigned threshold, int noise, int noisy, IScriptEnvironment* env)
+    : MotionDetection(width, height, threshold, noise, noisy, env)
   {
     fn_processneighbours_t neighbourproc[] = { &MotionDetectionDist::processneighbours1, &MotionDetectionDist::processneighbours2, &MotionDetectionDist::processneighbours3 };
     blocks = hblocks * vblocks;
@@ -1579,8 +1577,8 @@ public:
     } while (--j);
   }
 
-  Postprocessing(int width, int height, int dist, int tolerance, int dmode, unsigned threshold, int noise, int noisy, bool yuy2, int _pthreshold, int _cthreshold)
-    : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, noise, noisy)
+  Postprocessing(int width, int height, int dist, int tolerance, int dmode, unsigned threshold, int noise, int noisy, bool yuy2, int _pthreshold, int _cthreshold, IScriptEnvironment* env)
+    : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, noise, noisy, env)
     , pthreshold(_pthreshold), cthreshold(_cthreshold)
   {
 #ifdef  TEST_VERTICAL_DIFF_CHROMA
@@ -1727,7 +1725,7 @@ public:
 
 class RemoveDirt : public Postprocessing, public AccessFrame
 {
-  friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args);
+  friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
   bool  show;
   int       blocks;
   bool grey;
@@ -1736,8 +1734,8 @@ public:
   int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
 
 
-  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, unsigned threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug)
-    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, yuy2, pthreshold, cthreshold)
+  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, unsigned threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, IScriptEnvironment* env)
+    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, yuy2, pthreshold, cthreshold, env)
     , AccessFrame(_width, yuy2), grey(_grey), show(_show)
   {
     blocks = debug ? (hblocks * vblocks) : 0;
@@ -1766,7 +1764,7 @@ int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &p
 
   if (show) show_motion(destU, destV, destPitchUV);
 
-  __asm emms
+//  __asm emms
 
   if (blocks) debug_printf("[%u] RemoveDirt: motion blocks = %4u(%2u%%), %4i(%2i%%), %4u(%2u%%), loops = %u\n", frame, motionblocks, (motionblocks * 100) / blocks
     , distblocks, (distblocks * 100) / (int)blocks, restored_blocks, (restored_blocks * 100) / blocks, loops);
@@ -1776,7 +1774,7 @@ int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &p
 
 #define COMPARE_MASK    (~24)
 
-static  void CompareVideoInfo(VideoInfo &vi1, const VideoInfo &vi2, const char *progname)
+static  void CompareVideoInfo(VideoInfo &vi1, const VideoInfo &vi2, const char *progname, IScriptEnvironment* env)
 {
   if ((vi1.width != vi2.width) || (vi1.height != vi2.height) || ((vi1.pixel_type & COMPARE_MASK) != (vi2.pixel_type & COMPARE_MASK)))
   {
@@ -1784,14 +1782,14 @@ static  void CompareVideoInfo(VideoInfo &vi1, const VideoInfo &vi2, const char *
     debug_printf("widths = %u, %u, heights = %u, %u, color spaces = %X, %X\n"
       , vi1.width, vi2.width, vi1.height, vi2.height, vi1.pixel_type, vi2.pixel_type);
 #endif
-    AVSenvironment->ThrowError("%s: clips must be of equal type", progname);
+    env->ThrowError("%s: clips must be of equal type", progname);
   }
   if (vi1.num_frames > vi2.num_frames) vi1.num_frames = vi2.num_frames;
 }
 
 class   RestoreMotionBlocks : public GenericVideoFilter
 {
-  friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args);
+  friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
 protected:
 #ifdef  RANGEFILES
   RemoveDirt *rd[FHANDLERS + 1];
@@ -1827,7 +1825,7 @@ protected:
   }
 
 public:
-  RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative);
+  RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env);
 
   ~RestoreMotionBlocks()
   {
@@ -1845,7 +1843,7 @@ public:
   }
 };
 
-RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative)
+RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env)
   : GenericVideoFilter(filtered), restore(_restore), after(neighbour), before(neighbour2), alternative(_alternative)
 {
 #ifdef  RANGEFILES
@@ -1875,9 +1873,9 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   }
   if (alternative == NULL) alternative = restore;
   else alternative->SetCacheHints(CACHE_GENERIC, 0);
-  CompareVideoInfo(vi, restore->GetVideoInfo(), "RemoveDirt");
-  CompareVideoInfo(vi, before->GetVideoInfo(), "RemoveDirt");
-  CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt");
+  CompareVideoInfo(vi, restore->GetVideoInfo(), "RemoveDirt", env);
+  CompareVideoInfo(vi, before->GetVideoInfo(), "RemoveDirt", env);
+  CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt", env);
 }
 
 
@@ -1890,12 +1888,12 @@ const   char    *creatstr = "cc[neighbour]c[neighbour2]c[alternative]c[planar]b[
 
 enum    creatargs { SRC, RESTORE, AFTER, BEFORE, ALTERNATIVE, PLANAR, SHOW, DEBUG, GMTHRES, MTHRES, NOISE, NOISY, DIST, TOLERANCE, DMODE, PTHRES, CTHRES, GREY, REDUCEF };
 
-AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args)
+AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env)
 {
   VideoInfo &vi = filter->vi;
 
   if (vi.IsRGB() || (vi.IsYV12() + args[PLANAR].AsBool(false) == 0))
-    AVSenvironment->ThrowError("RemoveDirt: only YV12 and planar YUY2 clips are supported");
+    env->ThrowError("RemoveDirt: only YV12 and planar YUY2 clips are supported");
 
   int   pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
 
@@ -1903,7 +1901,7 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args)
   filter->rd = new RemoveDirt(vi.width, vi.height, args[DIST].AsInt(DEFAULT_DIST), args[TOLERANCE].AsInt(DEFAULT_TOLERANCE), args[DMODE].AsInt(0)
     , args[MTHRES].AsInt(DEFAULT_MTHRESHOLD), args[NOISE].AsInt(0), args[NOISY].AsInt(-1), vi.IsYUY2()
     , pthreshold, args[CTHRES].AsInt(pthreshold)
-    , args[GREY].AsBool(false), args[SHOW].AsBool(false), args[DEBUG].AsBool(false));
+    , args[GREY].AsBool(false), args[SHOW].AsBool(false), args[DEBUG].AsBool(false), env);
 
 
   filter->mthreshold = (args[GMTHRES].AsInt(DEFAULT_GMTHRESHOLD) * filter->rd->hblocks * filter->rd->vblocks) / 100;
@@ -1915,7 +1913,7 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
   if (!args[RESTORE].Defined()) env->ThrowError("RestoreMotionBlocks: a restore clip must be specified");
   return InitRemoveDirt(new RestoreMotionBlocks(args[SRC].AsClip(), args[RESTORE].AsClip()
     , args[AFTER].Defined() ? args[AFTER].AsClip() : NULL, args[BEFORE].Defined() ? args[BEFORE].AsClip() : NULL
-    , args[ALTERNATIVE].Defined() ? args[ALTERNATIVE].AsClip() : NULL), args);
+    , args[ALTERNATIVE].Defined() ? args[ALTERNATIVE].AsClip() : NULL, env), args, env);
 
 }
 
@@ -2059,13 +2057,13 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
     return selected->GetFrame(n, env);
   }
 public:
-  SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache)
+  SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
     : GenericVideoFilter(clip), AccessFrame(vi.width, vi.IsYUY2()), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
   {
-    if (vi.IsYV12() + planar == 0) AVSenvironment->ThrowError("SCSelect: only YV12 and planar YUY2 clips are supported");
-    CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect");
-    CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect");
-    CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect");
+    if (vi.IsYV12() + planar == 0) env->ThrowError("SCSelect: only YV12 and planar YUY2 clips are supported");
+    CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
+    CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
+    CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect", env);
     hblocks = vi.width / (2 * SSE_INCREMENT);
     incpitch = hblocks * (-2 * SSE_INCREMENT);
     scene_begin->SetCacheHints(CACHE_GENERIC, 0);
@@ -2079,7 +2077,7 @@ AVSValue __cdecl CreateSCSelect(AVSValue args, void* user_data, IScriptEnvironme
 {
   enum ARGS { CLIP, SBEGIN, SEND, GMOTION, DFACTOR, DEBUG, PLANAR, CACHE, GCACHE };
   return new SCSelect(args[CLIP].AsClip(), args[SBEGIN].AsClip(), args[SEND].AsClip(), args[GMOTION].AsClip(), args[DFACTOR].AsFloat(4.0)
-    , args[DEBUG].AsBool(false), args[PLANAR].AsBool(false), args[CACHE].AsInt(2), args[GCACHE].AsInt(0));
+    , args[DEBUG].AsBool(false), args[PLANAR].AsBool(false), args[CACHE].AsInt(2), args[GCACHE].AsInt(0), env);
 };
 
 /* New 2.6 requirement!!! */
@@ -2093,7 +2091,6 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   /* New 2.6 requirment!!! */
   // Save the server pointers.
   AVS_linkage = vectors;
-  AVSenvironment = env;
 #ifdef  DEBUG_NAME
   env->AddFunction("DSCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
   env->AddFunction("DRestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
