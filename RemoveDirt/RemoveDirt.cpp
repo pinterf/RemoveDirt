@@ -18,13 +18,13 @@
 // http://www.gnu.org/copyleft/gpl.html .
 
 #include "emmintrin.h"
+#include <cstdint>
 
 //
 // Part 1: options at compile time
 //
 
 //#define DEBUG_NAME
-//#define SSE2TEST
 //#define RANGEFILES 
 
 #define FHANDLERS 9
@@ -33,6 +33,10 @@
 //#define TEST_VERTICAL_DIFF
 //#define TEST_VERTICAL_DIFF_CHROMA
 
+// PF: This USE_DOUBLE_H_SIZED_BLOCKS define triggers old *"SSE2" mode with 2x8 pixel wide code paths instead of 8x8 pixels
+// not visibly faster but makes the code difficult.
+// *Code is using SSE2 for 8 pixel modes as well, no MMX any more
+// #define USE_DOUBLE_H_SIZED_BLOCKS
 
 #define MOTIONBLOCKWIDTH  8
 #define MOTIONBLOCKHEIGHT 8
@@ -117,9 +121,115 @@ void    debug_printf(const char *format, ...)
 // Part 4: block comparison functions
 //
 
-__declspec(align(16))
-unsigned    blockcompare_result[4]; // must be global otherwise compiler may generate incorrect alignment
+/****************************************************
+* C functions
+****************************************************/
 
+__forceinline unsigned int SADABS(int x) { return (x < 0) ? -x : x; }
+
+template<int nBlkWidth, int nBlkHeight, typename pixel_t>
+static unsigned int Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
+{
+  unsigned int sum = 0;
+  for (int y = 0; y < nBlkHeight; y++)
+  {
+    for (int x = 0; x < nBlkWidth; x++)
+      sum += SADABS(reinterpret_cast<const pixel_t *>(pSrc)[x] - reinterpret_cast<const pixel_t *>(pRef)[x]);
+    pSrc += nSrcPitch;
+    pRef += nRefPitch;
+  }
+  return sum;
+}
+
+// FIXME: to be removed - mimics a hand-optimized MMX code but present compiler likes basic siple SAD algorithm better - we'll use Sad_C instead
+template<int blksizeX, int blksizeY>
+unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
+{
+  pitch1 -= blksizeX;
+  pitch2 -= blksizeX;
+  int   res = 0;
+  int   i = blksizeY;
+  do
+  {
+    int j = blksizeX;
+    do
+    {
+      int diff = p1[0] - p2[0];
+      if (diff < 0) diff = -diff;
+      res += diff;
+      ++p1;
+      ++p2;
+    } while (--j);
+    p1 += pitch1;
+    p2 += pitch2;
+  } while (--i);
+  return res;
+}
+
+template<int blksizeX, int blksizeY>
+unsigned __stdcall test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  pitch1 -= blksizeX;
+  pitch2 -= blksizeX;
+  int   res = 0;
+  int   i = blksizeY;
+  do
+  {
+    int j = blksizeX;
+    do
+    {
+      int diff = p1[0] - p2[0];
+      if (diff < 0) diff = -diff;
+      diff -= noise;
+      if (diff < 0) diff = 0;
+      res += diff;
+      ++p1;
+      ++p2;
+    } while (--j);
+    p1 += pitch1;
+    p2 += pitch2;
+  } while (--i);
+  return res;
+}
+
+template<int blksizeX, int blksizeY>
+unsigned __stdcall test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  pitch1 -= blksizeX;
+  pitch2 -= blksizeX;
+  int   count = 0;
+  int   i = blksizeY;
+  do
+  {
+    int j = blksizeX;
+    do
+    {
+      int diff = p1[0] - p2[0];
+      if ((diff > noise) || (diff < -noise)) ++count;
+      ++p1;
+      ++p2;
+    } while (--j);
+    p1 += pitch1;
+    p2 += pitch2;
+  } while (--i);
+  return count;
+}
+
+/****************************************************
+* End of C functions
+****************************************************/
+
+/****************************************************
+* SIMD functions
+****************************************************/
+
+unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/) {
+  // optimizer makes it fast for SIMD
+  return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
+}
+
+#if 0
+// old v0.9
 unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
 {
 #ifdef  STATISTICS
@@ -157,28 +267,156 @@ unsigned __stdcall SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pi
   __asm paddd       mm1, mm3
   __asm paddd       mm0, mm1
   __asm movd        eax, mm0
-}
-
-#ifdef  SSE2TEST
-unsigned __stdcall SSE2test(const BYTE *p1, int pitch1)
-{
-  __asm mov         edx, pitch1
-  __asm mov         eax, p1
-  __asm mov         ecx, 8
-  __asm pxor        xmm4, xmm4
-  __asm _loop:
-  __asm movhps      xmm0, QWORD PTR[eax]
-    __asm   movq        xmm1, QWORD PTR[eax]
-    __asm   movhlps     xmm2, xmm0
-  __asm psadbw      xmm1, xmm2
-  __asm paddd       xmm4, xmm1
-  __asm add         eax, edx
-  __asm loop        _loop
-  __asm movd        eax, xmm4
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
 }
 #endif
 
-// mm7 contains already the noise level!
+static __forceinline __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
+{
+  return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(x), (double *)p));
+}
+
+unsigned int __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  __m128i noise_vector = _mm_set1_epi8(noise);
+  auto zero = _mm_setzero_si128();
+
+  // first 4 lines
+  __m128i src1a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 0 * pitch1)), (__m128i *)(p1 + 2 * pitch1));
+  __m128i src1b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 1 * pitch1)), (__m128i *)(p1 + 3 * pitch1));
+
+  __m128i src2a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 0 * pitch2)), (__m128i *)(p2 + 2 * pitch2));
+  __m128i src2b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 1 * pitch2)), (__m128i *)(p2 + 3 * pitch2));
+
+  __m128i diff_12a = _mm_subs_epu8(src1a, src2a);
+  __m128i diff_12b = _mm_subs_epu8(src1b, src2b);
+  __m128i diff_21a = _mm_subs_epu8(src2a, src1a);
+  __m128i diff_21b = _mm_subs_epu8(src2b, src1b);
+
+  diff_12a = _mm_subs_epu8(diff_12a, noise_vector);
+  diff_12b = _mm_subs_epu8(diff_12b, noise_vector);
+  diff_21a = _mm_subs_epu8(diff_21a, noise_vector);
+  diff_21b = _mm_subs_epu8(diff_21b, noise_vector);
+
+  auto absdiff_a = _mm_sad_epu8(diff_12a, diff_21a);
+  auto absdiff_b = _mm_sad_epu8(diff_12b, diff_21b);
+  auto absdiff_first4 = _mm_add_epi32(absdiff_a, absdiff_b);
+
+  // next 4 lines
+  p1 += pitch1 * 4;
+  p2 += pitch2 * 4;
+
+  src1a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 0 * pitch1)), (__m128i *)(p1 + 2 * pitch1));
+  src1b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 1 * pitch1)), (__m128i *)(p1 + 3 * pitch1));
+
+  src2a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 0 * pitch2)), (__m128i *)(p2 + 2 * pitch2));
+  src2b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 1 * pitch2)), (__m128i *)(p2 + 3 * pitch2));
+
+  diff_12a = _mm_subs_epu8(src1a, src2a);
+  diff_12b = _mm_subs_epu8(src1b, src2b);
+  diff_21a = _mm_subs_epu8(src2a, src1a);
+  diff_21b = _mm_subs_epu8(src2b, src1b);
+
+  diff_12a = _mm_subs_epu8(diff_12a, noise_vector);
+  diff_12b = _mm_subs_epu8(diff_12b, noise_vector);
+  diff_21a = _mm_subs_epu8(diff_21a, noise_vector);
+  diff_21b = _mm_subs_epu8(diff_21b, noise_vector);
+
+  absdiff_a = _mm_sad_epu8(diff_12a, diff_21a);
+  absdiff_b = _mm_sad_epu8(diff_12b, diff_21b);
+  auto absdiff_second4 = _mm_add_epi32(absdiff_a, absdiff_b);
+
+  // sum up counters
+  auto counts = _mm_add_epi32(absdiff_first4, absdiff_second4); // int32 sums result lo 64, hi 64
+  __m128i counts_hi = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(counts), _mm_castsi128_ps(counts)));
+  auto count_final = _mm_add_epi32(counts, counts_hi);
+  return (uint32_t)_mm_cvtsi128_si32(count_final);
+}
+
+#if 0
+// VS version, have some bugs, and finally not used
+// static __forceinline uint32_t NSADcompare(const uint8_t *p1, int32_t pitch1, const uint8_t *p2, int32_t pitch2, const uint8_t *noiselevel)
+unsigned int __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  __m128i xmm7 = _mm_set1_epi8(noise);
+
+  int32_t pitch1x2 = pitch1 + pitch1;
+  int32_t pitch1x3 = pitch1x2 + pitch1;
+  int32_t pitch1x4 = pitch1x3 + pitch1;
+  int32_t pitch2x2 = pitch2 + pitch2;
+  int32_t pitch2x3 = pitch2x2 + pitch2;
+  int32_t pitch2x4 = pitch2x3 + pitch2;
+
+  __m128i xmm0;
+  xmm0 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm0), (__m64 *)(p1)), (__m64 *)(p1 + pitch1x2)));
+
+  __m128i xmm2;
+  xmm2 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm2), (__m64 *)(p1 + pitch1)), (__m64 *)(p1 + pitch1x3)));
+
+  __m128i xmm3 = xmm0;
+  __m128i xmm4 = xmm2;
+
+  __m128i xmm5;
+  xmm5 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm5), (__m64 *)(p2)), (__m64 *)(p2 + pitch2x2)));
+
+  __m128i xmm6;
+  xmm6 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm6), (__m64 *)(p2 + pitch2)), (__m64 *)(p2 + pitch2x3)));
+
+  xmm0 = _mm_subs_epu8(xmm0, xmm5);
+  xmm2 = _mm_subs_epu8(xmm2, xmm6);
+  xmm5 = _mm_subs_epu8(xmm5, xmm3);
+  xmm6 = _mm_subs_epu8(xmm6, xmm4);
+  xmm0 = _mm_subs_epu8(xmm0, xmm7);
+  xmm2 = _mm_subs_epu8(xmm2, xmm7);
+  xmm5 = _mm_subs_epu8(xmm5, xmm7);
+  xmm6 = _mm_subs_epu8(xmm6, xmm7);
+
+  xmm0 = _mm_sad_epu8(xmm0, xmm5);
+  xmm6 = _mm_sad_epu8(xmm6, xmm2); // FIXME by PF: bug in VS version was: xmm0 = _mm_sad_epu8(xmm6, xmm2); 
+
+  p1 += pitch1x4;
+  p2 += pitch2x4;
+
+  __m128i xmm1;
+  xmm1 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm1), (__m64 *)(p1)), (__m64 *)(p1 + pitch1x2)));
+
+  xmm0 = _mm_add_epi32(xmm0, xmm6);
+
+  xmm2 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm2), (__m64 *)(p1 + pitch1)), (__m64 *)(p1 + pitch1x3)));
+
+  xmm3 = xmm1;
+  xmm4 = xmm2;
+
+  xmm5 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm5), (__m64 *)(p2)), (__m64 *)(p2 + pitch2x2)));
+  xmm6 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm6), (__m64 *)(p2 + pitch2)), (__m64 *)(p2 + pitch2x3)));
+
+  xmm1 = _mm_subs_epu8(xmm1, xmm5);
+  xmm2 = _mm_subs_epu8(xmm2, xmm6);
+  xmm5 = _mm_subs_epu8(xmm5, xmm3);
+  xmm6 = _mm_subs_epu8(xmm6, xmm4);
+  xmm1 = _mm_subs_epu8(xmm1, xmm7);
+  xmm2 = _mm_subs_epu8(xmm2, xmm7);
+  xmm5 = _mm_subs_epu8(xmm5, xmm7);
+  xmm6 = _mm_subs_epu8(xmm6, xmm7);
+
+  xmm1 = _mm_sad_epu8(xmm1, xmm5);  // FIXME by PF: bug in VS version. xmm0 holds previous sum and should be reserved. Was: xmm0 = _mm_sad_epu8(xmm1, xmm5);
+  xmm6 = _mm_sad_epu8(xmm6, xmm2);  // FIXME by PF: bug in VS version was: xmm0 = _mm_sad_epu8(xmm6, xmm2); 
+
+  xmm0 = _mm_add_epi32(xmm0, xmm1);
+  xmm0 = _mm_add_epi32(xmm0, xmm6);
+
+  xmm1 = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(xmm1), _mm_castsi128_ps(xmm0)));
+
+  xmm0 = _mm_add_epi32(xmm0, xmm1);
+
+  return (uint32_t)_mm_cvtsi128_si32(xmm0);
+}
+#endif
+
+#if 0
+// old v0.9
 unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   // __m128i xmm7 = _mm_set1_epi8(noise);
@@ -245,11 +483,170 @@ unsigned __stdcall NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int p
   __asm paddd       xmm0, xmm1
   __asm movd        eax, xmm0
 }
+#endif
 
+unsigned int __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  __m128i noise_vector = _mm_set1_epi8(noise);
+  auto zero = _mm_setzero_si128();
+
+  // first 4 lines
+  __m128i src1a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 0 * pitch1)), (__m128i *)(p1 + 2 * pitch1));
+  __m128i src1b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 1 * pitch1)), (__m128i *)(p1 + 3 * pitch1));
+
+  __m128i src2a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 0 * pitch2)), (__m128i *)(p2 + 2 * pitch2));
+  __m128i src2b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 1 * pitch2)), (__m128i *)(p2 + 3 * pitch2));
+
+  __m128i diff_12a = _mm_subs_epu8(src1a, src2a);
+  __m128i diff_12b = _mm_subs_epu8(src1b, src2b);
+  __m128i diff_21a = _mm_subs_epu8(src2a, src1a);
+  __m128i diff_21b = _mm_subs_epu8(src2b, src1b);
+
+  diff_12a = _mm_subs_epu8(diff_12a, noise_vector);
+  diff_12b = _mm_subs_epu8(diff_12b, noise_vector);
+  diff_21a = _mm_subs_epu8(diff_21a, noise_vector);
+  diff_21b = _mm_subs_epu8(diff_21b, noise_vector);
+
+  auto in_range_a = _mm_cmpeq_epi8(diff_12a, diff_21a); // sets FF (-1) where they are equal (e.g. zero)
+  auto in_range_b = _mm_cmpeq_epi8(diff_12b, diff_21b);
+  auto in_range_first4 = _mm_add_epi8(in_range_a, in_range_b);
+
+  // Trick for counting the noise-corrected-pixel-sads within the given range:
+  // Each byte holds (0 * -1 or 1 * -1 or 2 * -1, that is count of the pixels (0,1,2) in range at the given position
+  // This calculation will be repeated on the next 4 lines -> each position will hold -4,-3,-2,-1 or 0 as a counter
+  // Trick2: finally we'll add 4 (correction makes -4 to 0, -3 to 1 ... 0 to 4)
+  // Trick3: then apply SAD for horizontal summing of these partial sums
+
+  // next 4 lines
+  p1 += pitch1 * 4;
+  p2 += pitch2 * 4;
+
+  src1a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 0 * pitch1)), (__m128i *)(p1 + 2 * pitch1));
+  src1b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p1 + 1 * pitch1)), (__m128i *)(p1 + 3 * pitch1));
+
+  src2a = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 0 * pitch2)), (__m128i *)(p2 + 2 * pitch2));
+  src2b = _mm_loadh_epi64(_mm_loadl_epi64((__m128i *)(p2 + 1 * pitch2)), (__m128i *)(p2 + 3 * pitch2));
+
+  diff_12a = _mm_subs_epu8(src1a, src2a);
+  diff_12b = _mm_subs_epu8(src1b, src2b);
+  diff_21a = _mm_subs_epu8(src2a, src1a);
+  diff_21b = _mm_subs_epu8(src2b, src1b);
+
+  diff_12a = _mm_subs_epu8(diff_12a, noise_vector);
+  diff_12b = _mm_subs_epu8(diff_12b, noise_vector);
+  diff_21a = _mm_subs_epu8(diff_21a, noise_vector);
+  diff_21b = _mm_subs_epu8(diff_21b, noise_vector);
+
+  in_range_a = _mm_cmpeq_epi8(diff_12a, diff_21a); // sets FF (-1) where they are equal (e.g. zero)
+  in_range_b = _mm_cmpeq_epi8(diff_12b, diff_21b);
+  auto in_range_second4 = _mm_add_epi8(in_range_a, in_range_b);
+
+  auto in_range = _mm_add_epi8(in_range_first4, in_range_second4);
+  // applying trick 2 and 3:
+  // correction to shift -4..0 to 0..4 at each position
+  const __m128i excessadd = _mm_set1_epi8(4);
+  in_range = _mm_add_epi8(in_range, excessadd);
+  // sum up counters
+  auto counts = _mm_sad_epu8(in_range, zero); // int32 sums result lo 64, hi 64
+  __m128i counts_hi = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(counts), _mm_castsi128_ps(counts)));
+  auto count_final =  _mm_add_epi32(counts, counts_hi);
+  return (uint32_t)_mm_cvtsi128_si32(count_final);
+
+}
+
+#if 0
+// VS version, have some bugs, finally not used
 static const __declspec(align(SSESIZE)) BYTE excessadd[SSESIZE]
 = { 4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4 };
 
+//uint8_t ALIGNED_ARRAY(excessadd, 16)[16] = { 4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4 };
 
+unsigned int __stdcall ExcessPixels_vs(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+{
+  __m128i xmm7 = _mm_set1_epi8(noise);
+
+  int32_t pitch1x2 = pitch1 + pitch1;
+  int32_t pitch1x3 = pitch1x2 + pitch1;
+  int32_t pitch1x4 = pitch1x3 + pitch1;
+  int32_t pitch2x2 = pitch2 + pitch2;
+  int32_t pitch2x3 = pitch2x2 + pitch2;
+  int32_t pitch2x4 = pitch2x3 + pitch2;
+
+  __m128i xmm0;
+  xmm0 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm0), (__m64 *)(p1)), (__m64 *)(p1 + pitch1x2)));
+
+  __m128i xmm2;
+  xmm2 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm2), (__m64 *)(p1 + pitch1)), (__m64 *)(p1 + pitch1x3)));
+
+  __m128i xmm3 = xmm0;
+  __m128i xmm4 = xmm2;
+
+  __m128i xmm5;
+  xmm5 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm5), (__m64 *)(p2)), (__m64 *)(p2 + pitch2x2)));
+
+  __m128i xmm6;
+  xmm6 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm6), (__m64 *)(p2 + pitch2)), (__m64 *)(p2 + pitch2x3)));
+
+  xmm0 = _mm_subs_epu8(xmm0, xmm5);
+  xmm2 = _mm_subs_epu8(xmm2, xmm6);
+  xmm5 = _mm_subs_epu8(xmm5, xmm3);
+  xmm6 = _mm_subs_epu8(xmm6, xmm4);
+  xmm0 = _mm_subs_epu8(xmm0, xmm7);
+  xmm2 = _mm_subs_epu8(xmm2, xmm7);
+  xmm5 = _mm_subs_epu8(xmm5, xmm7);
+  xmm6 = _mm_subs_epu8(xmm6, xmm7);
+
+  xmm0 = _mm_cmpeq_epi8(xmm0, xmm5);
+  xmm6 = _mm_cmpeq_epi8(xmm6, xmm2);
+
+  p1 += pitch1x4;
+  p2 += pitch2x4;
+
+  __m128i xmm1;
+  xmm1 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm1), (__m64 *)(p1)), (__m64 *)(p1 + pitch1x2)));
+
+  xmm0 = _mm_add_epi8(xmm0, xmm6);
+
+  xmm2 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm2), (__m64 *)(p1 + pitch1)), (__m64 *)(p1 + pitch1x3)));
+
+  xmm3 = xmm1;
+  xmm4 = xmm2;
+
+  xmm5 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm5), (__m64 *)(p2)), (__m64 *)(p2 + pitch2x2)));
+
+  xmm6 = _mm_castps_si128(_mm_loadh_pi(_mm_loadl_pi(_mm_castsi128_ps(xmm6), (__m64 *)(p2 + pitch2)), (__m64 *)(p2 + pitch2x3)));
+
+  xmm1 = _mm_subs_epu8(xmm1, xmm5);
+  xmm2 = _mm_subs_epu8(xmm2, xmm6);
+  xmm5 = _mm_subs_epu8(xmm5, xmm3);
+  xmm6 = _mm_subs_epu8(xmm6, xmm4);
+  xmm1 = _mm_subs_epu8(xmm1, xmm7);
+  xmm2 = _mm_subs_epu8(xmm2, xmm7);
+  xmm5 = _mm_subs_epu8(xmm5, xmm7);
+  xmm6 = _mm_subs_epu8(xmm6, xmm7);
+
+  xmm1 = _mm_cmpeq_epi8(xmm1, xmm5);
+  xmm6 = _mm_cmpeq_epi8(xmm6, xmm2);
+
+  //_mm_xor_si128(xmm5, xmm5);  // wrong in VS version, there was no target variable. Fix by PF
+  xmm5 = _mm_setzero_si128(); // clearer (PF)
+
+  xmm0 = _mm_add_epi8(xmm0, xmm1);
+  xmm6 = _mm_add_epi8(xmm6, *((__m128i*)excessadd));
+  xmm0 = _mm_add_epi8(xmm0, xmm6);
+
+  xmm0 = _mm_sad_epu8(xmm0, xmm5);
+
+  xmm1 = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(xmm1), _mm_castsi128_ps(xmm0)));
+
+  xmm0 = _mm_add_epi32(xmm0, xmm1); // wrong in VS version. Fix by PF! was: epi8
+
+  return (uint32_t)_mm_cvtsi128_si32(xmm0);
+}
+#endif
+
+#if 0
+// old from v0.9
 unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   // __m128i xmm7 = _mm_set1_epi8(noise);
@@ -319,80 +716,19 @@ unsigned __stdcall ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int 
   __asm paddd       xmm0, xmm1
   __asm movd        eax, xmm0
 }
+#endif
 
+/****************************************************
+* SIMD functions end
+****************************************************/
 
-unsigned __stdcall test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
-{
-  pitch1 -= 8;
-  pitch2 -= 8;
-  int   res = 0;
-  int   i = 8;
-  do
-  {
-    int j = 8;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if (diff < 0) diff = -diff;
-      res += diff;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  return res;
-}
-
-template<int blksizeX, int blksizeY>
-unsigned __stdcall test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
-{
-  pitch1 -= 8;
-  pitch2 -= 8;
-  int   res = 0;
-  int   i = blksizeY;
-  do
-  {
-    int j = blksizeX;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if (diff < 0) diff = -diff;
-      diff -= noise;
-      if (diff < 0) diff = 0;
-      res += diff;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  return res;
-}
-
-template<int blksizeX, int blksizeY>
-unsigned __stdcall test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
-{
-  pitch1 -= 8;
-  pitch2 -= 8;
-  int   count = 0;
-  int   i = blksizeY;
-  do
-  {
-    int j = blksizeX;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if ((diff > noise) || (diff < -noise)) ++count;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  return count;
-}
-
+/****************************************************
+* Double width (v0.9 terminology: "SSE2") functions
+* We'll omit them finally, no visible speed gain, but make life more difficult
+****************************************************/
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
+__declspec(align(16))
+unsigned    blockcompare_result[4]; // must be global otherwise compiler may generate incorrect alignment
 
 void __stdcall SADcompareSSE2(const BYTE *p1, const BYTE *p2, int pitch, int /*noise*/)
 {
@@ -623,6 +959,11 @@ void __stdcall ExcessPixelsSSE2(const BYTE *p1, const BYTE *p2, int pitch, int n
   __asm psadbw      xmm0, xmm1
   __asm movdqa      blockcompare_result, xmm0
 }
+#endif
+
+/***********************************************************
+* End of Double width (v0.9 terminology: "SSE2") functions
+***********************************************************/
 
 //
 // Part 5: Motion Detection
@@ -642,14 +983,16 @@ public:
   int   hblocks, vblocks;
   unsigned threshold;
 
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
   void(__stdcall *blockcompareSSE2)(const BYTE *p1, const BYTE *p2, int pitch, int noise);
   int   hblocksSSE2;        // = hblocks / 2
   bool remainderSSE2;   // = hblocks & 1
   int   linewidthSSE2;
+#endif
 
   unsigned(__stdcall *test_blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
 
-  void  markblocks1(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+  void  markblocks1(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
   {
     int inc1 = MOTIONBLOCKHEIGHT * pitch1 - linewidth;
     int inc2 = MOTIONBLOCKHEIGHT * pitch2 - linewidth;
@@ -664,11 +1007,8 @@ public:
         properties[0] = 0;
 #ifdef  TEST_BLOCKCOMPARE
         int d;
-        if ((d = blockcompare(p1, pitch1, p2, pitch2) - test_blockcompare(p1, pitch1, p2, pitch2, noise)) != 0)
+        if ((d = blockcompare(p1, pitch1, p2, pitch2, noise) - test_blockcompare(p1, pitch1, p2, pitch2, noise)) != 0)
           debug_printf("blockcompare test fails with difference = %i\n", d);
-#endif
-#ifdef  SSE2TEST
-        if (SSE2test(p1, pitch1) + SSE2test(p2, pitch2) != 0) debug_printf("SSE2 failure\n");
 #endif
         if (blockcompare(p1, pitch1, p2, pitch2, noise) >= threshold)
         {
@@ -686,7 +1026,8 @@ public:
     } while (--j);
   }
 
-  void  markblocks2(const BYTE *p1, const BYTE *p2, int pitch, int noise)
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
+  void  markblocks2(const BYTE *p1, const BYTE *p2, int pitch)
   {
     int inc = MOTIONBLOCKHEIGHT * pitch - linewidthSSE2;
     unsigned char *properties = blockproperties;
@@ -728,47 +1069,61 @@ public:
       ++properties;
     } while (--j);
   }
+#endif
 
   void  markblocks(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
   {
     motionblocks = 0;
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
     if (((pitch1 - pitch2) | (((unsigned)p1) & 15) | (((unsigned)p2) & 15)) == 0)
-      markblocks2(p1, p2, pitch1, noise); // pitches are the same and both are mod16
-    else 
-      markblocks1(p1, pitch1, p2, pitch2, noise); // different pitches or not mod16
+      markblocks2(p1, p2, pitch1); // pitches are the same and both are mod16
+    else
+#endif
+      markblocks1(p1, pitch1, p2, pitch2); // generic way. Also for different pitches or not mod16
   }
 
-  MotionDetection(int   width, int height, unsigned _threshold, int _noise, int _noisy, IScriptEnvironment* env) : threshold(_threshold)
+  MotionDetection(int   width, int height, unsigned _threshold, int _noise, int _noisy, IScriptEnvironment* env) : threshold(_threshold), noise(_noise)
   {
-    noise = _noise;
 
     hblocks = (linewidth = width) / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
+    bool use_SSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
     linewidthSSE2 = linewidth;
     hblocksSSE2 = hblocks / 2;
     if ((remainderSSE2 = (hblocks & 1)) != 0) linewidthSSE2 -= MOTIONBLOCKWIDTH;
-    if ((hblocksSSE2 == 0) || (vblocks == 0)) env->ThrowError("RemoveDirt: width or height of the clip too small");
+
+    if (use_SSE2 && ((hblocksSSE2 == 0) || (vblocks == 0))) 
+      use_SSE2 = false;
+#endif
+
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
     blockcompareSSE2 = SADcompareSSE2;
+#endif
 
     // old non-SSE2 check
-    // if ((hblocks == 0) || (vblocks == 0)) AVSenvironment->ThrowError("RemoveDirt: width or height of the clip too small");
+    if (!use_SSE2 & ((hblocks == 0) || (vblocks == 0)))
+        env->ThrowError("RemoveDirt: width or height of the clip too small");
 
-    blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? SADcompare : test_SADcompare;
-    test_blockcompare = test_SADcompare;
+    blockcompare = use_SSE2 ? SADcompare : test_SADcompare<8, 8>;
+    test_blockcompare = test_SADcompare<8, 8>;
     if (noise > 0)
     {
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
       blockcompareSSE2 = NSADcompareSSE2;
-#ifdef  TEST_BLOCKCOMPARE
-      test_blockcompare = test_NSADcompare;
 #endif
-      blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? NSADcompare : test_NSADcompare<8,8>;
+      test_blockcompare = test_NSADcompare<8,8>;
+      blockcompare = use_SSE2 ? NSADcompare : test_NSADcompare<8,8>;
 
       if (_noisy >= 0)
       {
+#ifdef USE_DOUBLE_H_SIZED_BLOCKS
         blockcompareSSE2 = ExcessPixelsSSE2;
+#endif
         test_blockcompare = test_ExcessPixels<8,8>;
-        blockcompare = (env->GetCPUFlags() & CPUF_SSE2) ? ExcessPixels : test_ExcessPixels<8,8>;
+        blockcompare = use_SSE2 ? ExcessPixels : test_ExcessPixels<8,8>;
         threshold = _noisy;
       }
     }
@@ -778,7 +1133,6 @@ public:
     pline = -nline;
     memset(blockproperties_addr, BMARGIN, size);
   }
-
 
   ~MotionDetection()
   {
@@ -875,8 +1229,8 @@ public:
     }
   }
 
-  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, unsigned threshold, int noise, int noisy, IScriptEnvironment* env)
-    : MotionDetection(width, height, threshold, noise, noisy, env)
+  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, unsigned _threshold, int _noise, int _noisy, IScriptEnvironment* env)
+    : MotionDetection(width, height, _threshold, _noise, _noisy, env)
   {
     fn_processneighbours_t neighbourproc[] = { &MotionDetectionDist::processneighbours1, &MotionDetectionDist::processneighbours2, &MotionDetectionDist::processneighbours3 };
     blocks = hblocks * vblocks;
@@ -997,18 +1351,37 @@ int __stdcall horizontal_diff(const BYTE *p, int pitch)
 #ifdef STATISTICS
   st_horizontal_diff_luma++;
 #endif
+#if 1
+  // 8 pixels
+  auto src1 = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(p));
+  auto src2 = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(p + pitch));
+  return _mm_cvtsi128_si32(_mm_sad_epu8(src1, src2));
+#else
   __asm mov         edx, p
   __asm mov         eax, pitch
   __asm movq        mm0, [edx]
     __asm   psadbw      mm0, [edx + eax]
     __asm   movd        eax, mm0
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+#endif
 }
 
+// 4
 int __stdcall horizontal_diff_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
 #ifdef STATISTICS
   st_horizontal_diff_chroma++;
 #endif
+#if 1
+  // interleave u and v as 2x4 pixels then do sad
+  auto src1_u = _mm_cvtsi32_si128(*(reinterpret_cast<const int *>(u)));
+  auto src1_v = _mm_cvtsi32_si128(*(reinterpret_cast<const int *>(v)));
+  auto src2_u = _mm_cvtsi32_si128(*(reinterpret_cast<const int *>(u + pitch)));
+  auto src2_v = _mm_cvtsi32_si128(*(reinterpret_cast<const int *>(v + pitch)));
+  return _mm_cvtsi128_si32(_mm_sad_epu8(_mm_unpacklo_epi32(src1_u, src1_v), _mm_unpacklo_epi32(src2_u, src2_v)));
+#else
   __asm mov         edx, u
   __asm mov         eax, pitch
   __asm movd        mm0, [edx]
@@ -1018,9 +1391,58 @@ int __stdcall horizontal_diff_chroma(const BYTE *u, const BYTE *v, int pitch)
     __asm   punpckldq   mm1, [ecx + eax]
     __asm   psadbw      mm0, mm1
   __asm movd        eax, mm0
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+#endif
 }
 
-int __stdcall vertical_diff(const BYTE *p, int pitch)
+static __forceinline int32_t vertical_diff(const uint8_t *p, int32_t pitch/*, const uint8_t *noiselevel*/)
+// diff from VS: noiselevel is not needed here!
+{
+  int32_t pitchx2 = pitch + pitch;
+  int32_t pitchx3 = pitchx2 + pitch;
+  int32_t pitchx4 = pitchx3 + pitch;
+  __m128i xmm7 = _mm_setzero_si128(); // _mm_loadu_si128((__m128i*)noiselevel);
+
+  __m128i xmm0 = _mm_setzero_si128(); // diff from VS: fixme: set it but leave it 'unused'
+  __m128i xmm1 = _mm_setzero_si128();
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)p), 0);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(p + pitchx2)), 1);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(p + pitch)), 0);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(p + pitchx3)), 1);
+
+  xmm7 = _mm_cmpeq_epi8(xmm7, xmm7); // set it all FF
+
+  p += pitchx4;
+
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)p), 2);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(p + pitchx2)), 3);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(p + pitch)), 2);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(p + pitchx3)), 3);
+
+  __m128i xmm2 = xmm0;
+  __m128i xmm3 = xmm1;
+
+  xmm7 = _mm_srli_epi16(xmm7, 8);
+
+  xmm0 = _mm_and_si128(xmm0, xmm7);
+
+  xmm1 = _mm_slli_epi16(xmm1, 8);
+  xmm2 = _mm_srli_epi16(xmm2, 8);
+
+  xmm3 = _mm_subs_epu8(xmm3, xmm7);
+
+  xmm0 = _mm_or_si128(xmm0, xmm1);
+  xmm2 = _mm_or_si128(xmm2, xmm3);
+
+  xmm0 = _mm_sad_epu8(xmm0, xmm2);
+
+  return _mm_cvtsi128_si32(xmm0);
+}
+
+#if 0
+int __stdcall vertical_diff_old_mmx(const BYTE *p, int pitch)
 {
 #ifdef STATISTICS
   st_vertical_diff++;
@@ -1049,12 +1471,17 @@ int __stdcall vertical_diff(const BYTE *p, int pitch)
   __asm por         mm2, mm3
   __asm psadbw      mm0, mm2
   __asm movd        eax, mm0
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
 }
+#endif
 
+template<int blocksizeY>
 int __stdcall test_vertical_diff(const BYTE *p, int pitch)
 {
   int   res = 0;
-  int   i = 8;
+  int   i = blocksizeY;
   do
   {
     int diff = p[0] - p[1];
@@ -1065,6 +1492,117 @@ int __stdcall test_vertical_diff(const BYTE *p, int pitch)
   return    res;
 }
 
+// from VS, minor mod, bugfix
+int __stdcall vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
+{
+//  __m128i xmm7 = _mm_set1_epi8(noise); // FIXME by PF: no need, not used here!
+  int32_t pitchx2 = pitch + pitch;
+  int32_t pitchx3 = pitchx2 + pitch;
+
+  __m128i xmm0, xmm1;
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)u), 0);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(u + pitchx2)), 1);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitch)), 0);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitchx3)), 1);
+
+  __m128i xmm7 = _mm_cmpeq_epi8(xmm7, xmm7);
+
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)v), 2);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(v + pitchx2)), 3);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)v + pitch), 2);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(v + pitchx3)), 3);
+  __m128i xmm2 = xmm0;
+  __m128i xmm3 = xmm1;
+
+  xmm7 = _mm_srli_epi16(xmm7, 8);
+
+  xmm0 = _mm_and_si128(xmm0, xmm7);
+
+  xmm1 = _mm_slli_epi16(xmm1, 8);
+  xmm2 = _mm_srli_epi16(xmm2, 8);
+
+  xmm3 = _mm_subs_epu8(xmm3, xmm7);
+
+  xmm0 = _mm_or_si128(xmm0, xmm1);
+  xmm2 = _mm_or_si128(xmm2, xmm3);
+
+  xmm0 = _mm_sad_epu8(xmm0, xmm2);
+
+  return (uint32_t)_mm_cvtsi128_si32(xmm0);
+}
+
+// from VS, minor mod, bugfix
+static int __stdcall vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int pitch)
+{
+  //  __m128i xmm7 = _mm_set1_epi8(noise); // FIXME by PF: no need, not used here!
+
+  int32_t pitchx2 = pitch + pitch;
+  int32_t pitchx3 = pitchx2 + pitch;
+  int32_t pitchx4 = pitchx3 + pitch;
+
+  __m128i xmm0, xmm1;
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)u), 0);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(u + pitchx2)), 1);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitch)), 0);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitchx3)), 1);
+
+  u += pitchx4;
+
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)u), 2);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(u + pitchx2)), 3);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitch)), 2);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(u + pitchx3)), 3);
+  __m128i xmm2 = xmm0;
+  __m128i xmm3 = xmm1;
+
+  __m128i xmm7 = _mm_cmpeq_epi8(xmm7, xmm7); // FIXME by PF: this line was missing, VS is buggy
+
+  xmm0 = _mm_and_si128(xmm0, xmm7);
+
+  xmm1 = _mm_slli_epi16(xmm1, 8);
+  xmm2 = _mm_srli_epi16(xmm2, 8);
+
+  xmm3 = _mm_subs_epu8(xmm3, xmm7);
+
+  xmm0 = _mm_or_si128(xmm0, xmm1);
+  xmm2 = _mm_or_si128(xmm2, xmm3);
+
+  __m128i xmm4;
+  xmm4 = _mm_insert_epi16(xmm4, *((int32_t*)v), 0);
+  xmm0 = _mm_insert_epi16(xmm0, *((int32_t*)(v + pitchx2)), 1);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(v + pitch)), 0);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(v + pitchx3)), 1);
+
+  v += pitchx4;
+
+  xmm4 = _mm_insert_epi16(xmm4, *((int32_t*)v), 2);
+  xmm4 = _mm_insert_epi16(xmm4, *((int32_t*)(v + pitchx2)), 3);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(v + pitch)), 2);
+  xmm1 = _mm_insert_epi16(xmm1, *((int32_t*)(v + pitchx3)), 3);
+
+  __m128i xmm6 = xmm4;
+  xmm3 = xmm1;
+
+  xmm4 = _mm_and_si128(xmm4, xmm7);
+
+  xmm1 = _mm_slli_epi16(xmm1, 8);
+  xmm6 = _mm_srli_epi16(xmm6, 8);
+
+  xmm3 = _mm_subs_epu8(xmm3, xmm7);
+
+  xmm4 = _mm_or_si128(xmm4, xmm1);
+  xmm6 = _mm_or_si128(xmm6, xmm3);
+
+  xmm0 = _mm_sad_epu8(xmm0, xmm2);
+  xmm4 = _mm_sad_epu8(xmm4, xmm6);
+
+  xmm0 = _mm_avg_epu16(xmm0, xmm4);
+
+  return _mm_cvtsi128_si32(xmm0);
+}
+
+#if 0
+//old v0.9
 int __stdcall vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
 #ifdef STATISTICS
@@ -1094,7 +1632,11 @@ int __stdcall vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
   __asm por         mm2, mm3
   __asm psadbw      mm0, mm2
   __asm movd        eax, mm0
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
 }
+#endif
 
 int __stdcall test_vertical_diff_yv12_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
@@ -1147,6 +1689,7 @@ int __stdcall test_vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int p
   return    (res1 + res2 + 1) / 2;
 }
 
+#if 0
 int __stdcall vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int pitch)
 {
 #ifdef STATISTICS
@@ -1196,10 +1739,28 @@ int __stdcall vertical_diff_yuy2_chroma(const BYTE *u, const BYTE *v, int pitch)
   __asm psadbw      mm4, mm6
   __asm pavgw       mm0, mm4
   __asm movd        eax, mm0
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+}
+#endif
+
+template<int nBlkWidth, int nBlkHeight, typename pixel_t>
+void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int nSrcPitch)
+{
+  for (int j = 0; j < nBlkHeight; j++)
+  {
+    memcpy(pDst, pSrc, nBlkWidth * sizeof(pixel_t));
+    pDst += nDstPitch;
+    pSrc += nSrcPitch;
+  }
 }
 
 void __stdcall copy8x8(BYTE *dest, int dpitch, const BYTE *src, int spitch)
 {
+#if 1
+  Copy_C<8, 8, uint8_t>(dest, dpitch, src, spitch);
+#else
   __asm mov         esi, src
   __asm mov         eax, spitch
   __asm mov         edi, dest
@@ -1227,10 +1788,19 @@ void __stdcall copy8x8(BYTE *dest, int dpitch, const BYTE *src, int spitch)
     __asm   movq        mm1, [esi + ecx]
     __asm   movq[edi + 2 * ebx], mm0
   __asm movq[edi + edx], mm1
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+
+#endif
 }
 
 void __stdcall copy_yv12_chroma(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch)
 {
+#if 1
+  Copy_C<4, 4, uint8_t>(destu, dpitch, srcu, spitch); // FIXME by PF: Don't think, it was intentionally 8x4 instead of 4x4 ???
+  Copy_C<4, 4, uint8_t>(destv, dpitch, srcv, spitch);
+#else
   __asm mov         esi, srcu
   __asm mov         eax, spitch
   __asm mov         edi, destu
@@ -1258,10 +1828,19 @@ void __stdcall copy_yv12_chroma(BYTE *destu, BYTE *destv, int dpitch, const BYTE
     __asm   movq        mm1, [esi + ecx]
     __asm   movq[edi + 2 * ebx], mm0
   __asm movq[edi + edx], mm1
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+
+#endif
 }
 
 void __stdcall copy_yuy2_chroma(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch)
 {
+#if 1
+  Copy_C<4, 8, uint8_t>(destu, dpitch, srcu, spitch); // FIXME: Don't think, it was intentionally 8x8 instead of 4x8?
+  Copy_C<4, 8, uint8_t>(destv, dpitch, srcv, spitch);
+#else
   __asm mov         esi, srcu
   __asm mov         eax, spitch
   __asm mov         edi, destu
@@ -1313,6 +1892,11 @@ void __stdcall copy_yuy2_chroma(BYTE *destu, BYTE *destv, int dpitch, const BYTE
     __asm   movq        mm1, [esi + ecx]
     __asm   movq[edi + 2 * ebx], mm0
   __asm movq[edi + edx], mm1
+
+#ifndef _M_X64 
+  _mm_empty();
+#endif 
+#endif
 }
 
 void    inline colorise(BYTE *u, BYTE *v, int pitch, int height, unsigned ucolor, unsigned vcolor)
@@ -1389,7 +1973,8 @@ public:
             if (cl[-1] == 0)
             {
 #ifdef  TEST_VERTICAL_DIFF
-              if (vertical_diff(dp2 + leftdp, dpitch) != test_vertical_diff(dp2 + leftdp, dpitch)) debug_printf("vertical_diff incorrect\n");
+              if (vertical_diff(dp2 + leftdp, dpitch) != test_vertical_diff<8>(dp2 + leftdp, dpitch))
+                debug_printf("vertical_diff incorrect\n");
 #endif
               if (vertical_diff(dp2 + leftdp, dpitch) > vertical_diff(sp2 + leftsp, spitch) + pthreshold)
               {
@@ -1488,7 +2073,8 @@ public:
             if (cl[-1] == 0)
             {
 #ifdef  TEST_VERTICAL_DIFF_CHROMA
-              if (vertical_diff_chroma(dpU2 + Cleftdp, dpV2 + Cleftdp, dpitchUV) != test_vertical_diff_chroma(dpU2 + Cleftdp, dpV2 + Cleftdp, dpitchUV)) debug_printf("vertical_diff_chroma incorrect\n");
+              if (vertical_diff_chroma(dpU2 + Cleftdp, dpV2 + Cleftdp, dpitchUV) != test_vertical_diff_chroma(dpU2 + Cleftdp, dpV2 + Cleftdp, dpitchUV))
+                debug_printf("vertical_diff_chroma incorrect\n");
 #endif
               if ((vertical_diff(dp2 + leftdp, dpitch) > vertical_diff(sp2 + leftsp, spitch) + pthreshold)
                 || (vertical_diff_chroma(dpU2 + Cleftdp, dpV2 + Cleftdp, dpitchUV) > vertical_diff_chroma(spU2 + Cleftsp, spV2 + Cleftsp, spitchUV) + cthreshold))
@@ -1581,8 +2167,8 @@ public:
     } while (--j);
   }
 
-  Postprocessing(int width, int height, int dist, int tolerance, int dmode, unsigned threshold, int noise, int noisy, bool yuy2, int _pthreshold, int _cthreshold, IScriptEnvironment* env)
-    : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, noise, noisy, env)
+  Postprocessing(int width, int height, int dist, int tolerance, int dmode, unsigned threshold, int _noise, int _noisy, bool yuy2, int _pthreshold, int _cthreshold, IScriptEnvironment* env)
+    : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, _noise, _noisy, env)
     , pthreshold(_pthreshold), cthreshold(_cthreshold)
   {
     test_vertical_diff_chroma = test_vertical_diff_yv12_chroma;
@@ -1601,6 +2187,7 @@ public:
   }
 };
 
+// helper for uniformly access planar-hacked YUY2 and standard YV12 planes
 class   AccessFrame
 {
   int   uoffset, voffset;
@@ -1764,8 +2351,6 @@ int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &p
 
   if (show) show_motion(destU, destV, destPitchUV);
 
-//  __asm emms
-
   if (blocks) debug_printf("[%u] RemoveDirt: motion blocks = %4u(%2u%%), %4i(%2i%%), %4u(%2u%%), loops = %u\n", frame, motionblocks, (motionblocks * 100) / blocks
     , distblocks, (distblocks * 100) / (int)blocks, restored_blocks, (restored_blocks * 100) / blocks, loops);
 
@@ -1917,6 +2502,74 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
 
 }
 
+// from VS
+static uint32_t aligned_diff(const uint8_t *sp1, int32_t spitch1, const uint8_t *sp2, int32_t spitch2, int32_t hblocks, int32_t incpitch, int32_t height)
+{
+  __m128i xmm0 = _mm_setzero_si128();
+  __m128i xmm1 = _mm_setzero_si128();
+
+  spitch2 += incpitch;
+  incpitch += spitch1;
+
+  int32_t counter = hblocks;
+  do {
+    __m128i xmm2 = _mm_load_si128((__m128i*)sp1);
+    __m128i xmm3 = _mm_load_si128((__m128i*)(sp1 + 16));
+    __m128i xmm4 = _mm_load_si128((__m128i*)sp2);
+    __m128i xmm5 = _mm_load_si128((__m128i*)(sp2 + 16));
+
+    xmm2 = _mm_sad_epu8(xmm2, xmm4);
+    xmm3 = _mm_sad_epu8(xmm3, xmm5);
+    xmm0 = _mm_add_epi32(xmm0, xmm2);
+    xmm1 = _mm_add_epi32(xmm1, xmm3);
+
+    sp1 += 32;
+    sp2 += 32;
+    if (--counter > 0) {
+      continue;
+    }
+    sp1 += incpitch;
+    sp2 += spitch2;
+    counter = hblocks;
+  } while (--height > 0);
+
+  xmm0 = _mm_add_epi32(xmm0, xmm1);
+  return (uint32_t)_mm_cvtsi128_si32(xmm0);
+}
+
+// from VS
+static uint32_t unaligned_diff(const uint8_t *sp1, int32_t spitch1, const uint8_t *sp2, int32_t spitch2, int32_t hblocks, int32_t incpitch, int32_t height)
+{
+  __m128i xmm0 = _mm_setzero_si128();
+  __m128i xmm1 = _mm_setzero_si128();
+
+  spitch2 += incpitch;
+  incpitch += spitch1;
+
+  int32_t counter = hblocks;
+  do {
+    __m128i xmm2 = _mm_loadu_si128((__m128i*)sp1);
+    __m128i xmm3 = _mm_loadu_si128((__m128i*)(sp1 + 16));
+    __m128i xmm4 = _mm_loadu_si128((__m128i*)sp2);
+    __m128i xmm5 = _mm_loadu_si128((__m128i*)(sp2 + 16));
+
+    xmm2 = _mm_sad_epu8(xmm2, xmm4);
+    xmm3 = _mm_sad_epu8(xmm3, xmm5);
+    xmm0 = _mm_add_epi32(xmm0, xmm2);
+    xmm1 = _mm_add_epi32(xmm1, xmm3);
+
+    sp1 += 32;
+    sp2 += 32;
+    if (--counter > 0) {
+      continue;
+    }
+  } while (--height > 0);
+
+  xmm0 = _mm_add_epi32(xmm0, xmm1);
+  return (uint32_t)_mm_cvtsi128_si32(xmm0);
+}
+
+#if 0
 #define SSE_INCREMENT   16
 #define SSE_MOVE        movdqu
 #define SSE3_MOVE       lddqu
@@ -1996,13 +2649,76 @@ static  inline unsigned unaligned_diff(const BYTE *sp1, int spitch1, const BYTE 
   __asm movd        eax, SSE0
 }
 
+#undef	SSE_INCREMENT
+#undef	SSE_MOVE
+#undef	SSE3_MOVE
+#undef	SSE_RMOVE
+#undef	SSE0
+#undef	SSE1
+#undef	SSE2
+#undef	SSE3
+#undef	SSE4
+#undef	SSE5
+#undef	SSE6
+#undef	SSE7
+#undef	SSE_EMMS
+#endif
+
+#if 0
+#define	SSE_INCREMENT	8
+#define	SSE_MOVE		movq
+#define	SSE3_MOVE		movq
+#define	SSE_RMOVE		movq
+#define	SSE0			mm0
+#define	SSE1			mm1
+#define	SSE2			mm2
+#define	SSE3			mm3
+#define	SSE4			mm4
+#define	SSE5			mm5
+#define	SSE6			mm6
+#define	SSE7			mm7
+#define	SSE_EMMS		__asm	emms
+
+static	unsigned gdiff_mmx(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
+{
+  __asm	pxor		SSE0, SSE0
+  __asm	mov			eax, incpitch
+  __asm	mov			ebx, spitch2
+  __asm	mov			esi, sp1
+  __asm	add			ebx, eax
+  __asm	mov			edi, sp2
+  __asm	add			eax, spitch1
+  __asm	pxor		SSE1, SSE1
+  __asm	mov			edx, height
+  __asm	mov			ecx, hblocks
+  __asm	align		16
+  __asm	_loop:
+  __asm	SSE_RMOVE	SSE2, [esi]
+    __asm	SSE_RMOVE	SSE3, [esi + SSE_INCREMENT]
+    __asm	psadbw		SSE2, [edi]
+    __asm	add			esi, 2 * SSE_INCREMENT
+  __asm	psadbw		SSE3, [edi + SSE_INCREMENT]
+    __asm	paddd		SSE0, SSE2
+  __asm	add			edi, 2 * SSE_INCREMENT
+  __asm	paddd		SSE1, SSE3
+  __asm	loop		_loop
+  __asm	add			esi, eax
+  __asm	add			edi, ebx
+  __asm	dec			edx
+  __asm	mov			ecx, hblocks
+  __asm	jnz			_loop
+  __asm	paddd		SSE0, SSE1
+  __asm	movd		eax, SSE0
+  SSE_EMMS
+}
+#endif
+
 static unsigned gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int hblocks, int incpitch, int height)
 {
-  if ((((unsigned)sp1 & (SSE_INCREMENT - 1)) + ((unsigned)sp2 & (SSE_INCREMENT - 1))) == 0)
+  if (((intptr_t)sp1 & 15) == 0 && ((intptr_t)sp2 & 15) == 0)
     return aligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
   else
     return unaligned_diff(sp1, spitch1, sp2, spitch2, hblocks, incpitch, height);
-
 }
 
 #define SPOINTER(p) p.operator->()
@@ -2064,6 +2780,9 @@ public:
     CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect", env);
+    
+    const int SSE_INCREMENT = 16;
+
     hblocks = vi.width / (2 * SSE_INCREMENT);
     incpitch = hblocks * (-2 * SSE_INCREMENT);
     scene_begin->SetCacheHints(CACHE_GENERIC, 0);
