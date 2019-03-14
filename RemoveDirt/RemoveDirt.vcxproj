@@ -31,6 +31,9 @@
   <ItemGroup>
     <ClCompile Include="RemoveDirt.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="RemoveDirt.rc" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{588984EE-FDBE-4901-894A-32781B765F07}</ProjectGuid>
