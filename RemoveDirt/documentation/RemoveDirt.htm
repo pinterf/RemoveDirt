@@ -1,19 +1,20 @@
-<html>
+﻿<html>
 	<head>
 		<title>RemoveDirt</title>
 		<META content="Dirt removal in movies, Avisynth, Avisynth filter, temporal cleaner, kassandro, Rainer Wittmann"
 			name="Keywords">
 	</head>
 	<body text="#000000" bgColor="#ccffcc">
-		<h1><FONT size="7">RemoveDirt 0.9</FONT></h1>
-		<h3>An Avisynth 2.5x filter for&nbsp;removing dirt from film clips</h3>
+		<h1><FONT size="7">RemoveDirt 0.9.1</FONT></h1>
+		<h3>An Avisynth+/Avisynth 2.6 filter for&nbsp;removing dirt from film clips</h3>
 		<p><b>By Rainer Wittmann&nbsp;<A href="mailto:gorw@gmx.de">gorw@gmx.de</A></b></p>
-		<p><b>The most recent version of this document is always available at <A href="http://www.RemoveDirt.de.tf">
+        <p><b>Updated in 2019 by Ferenc Pintér, project page: https://github.com/pinterf/RemoveDirt
+		<p><b>The 0.9 version of this document was available at <A href="http://www.RemoveDirt.de.tf">
 					www.RemoveDirt.de.tf </A></b>
 		</p>
 		<p><b>The <A href="RemoveDirt.zip">binary</A> and the <A href="RemoveDirt-src.zip">source 
 					code</A> are subject to the <A href="http://www.gnu.org/copyleft/gpl.html" target="_blank">
-					GNU General Public License</A>. Last change&nbsp;May 7, 2005.</b></p>
+					GNU General Public License</A>.</b></p>
 		<H2><FONT size="6">Introduction</FONT></H2>
 		<P>Version 0.8 of this plugin has been completely rewritten from scratch. It no 
 			more contains a RemoveDirt filter. It now only contains the filter 
@@ -37,26 +38,15 @@
 			don't&nbsp;hesitate to post&nbsp;in the <A href="http://forum.doom9.org/showthread.php?s=&amp;threadid=70856">
 				RemoveDirt thread</A>&nbsp;of the doom9 forum rather than sending me email.
 		</P>
-		<P>RemoveDirt supports the color spaces YV12 and planar YUY2. Thus if you want to 
-			use it with YUY2 clips, you have to convert from interleaved YUY2 to planar 
-			YUY2 before RestoreMotionBlocks and then back to interleaved YUY2 with the 
-			filters Interleaved2Planar and Planar2Interleaved from my SSETools plugin. As 
-			long as there is no official version of this plugin, it is contained in the <A href="http://www.RemoveGrain.de.tf">
-				RemoveGrain</A> &nbsp;package. Since RemoveGrain, Repair also support YUY2 
-			only in planar form, this conversion has to be done&nbsp;only once before a 
-			script function, which is built from filters in these plugins.</P>
+		<P>RemoveDirt v0.9.1 supports the color spaces Y8, YV12, YV16, YV24 and planar YUY2.
+            If possible, don't use YUY2, use YV16 instead.
+            If you still want to use it with YUY2 clips, you have to convert from interleaved 
+            YUY2 to planar YUY2 before RestoreMotionBlocks and then back to interleaved YUY2 
+            with the filters Interleaved2Planar and Planar2Interleaved from SSETools plugin.
+            </P>
 		<H2><FONT size="6">Installation</FONT></H2>
-		<P>The binary package of RemoveDirt contains two versions of the plugin. 
-			RemoveDirt.dll (dynamically linked, hence small), RemoveDirtSSE2.dll (only for 
-			SSE2 capable cpus, dynamically linked)&nbsp;and RemoveDirtS.dll (staticly 
-			linked, hence&nbsp;big). Try first&nbsp;one of the&nbsp;two small dlls and copy 
-			it to Avisynth's plugin directory. If it doesn't work, this is probably due to 
-			missing msvcr71.dll library. Either you install this library in 
-			C:\windows\system32 or you delete RemoveDirt.dll and replace it by 
-			RemoveDirtS.dll. Please put&nbsp;only one of the&nbsp;dlls into the plugin 
-			directory. If you fill the plugin directory with all kinds of superfluous dlls, 
-			then you only slow down the start of any application which uses 
-			Avisynth.&nbsp;There should be no conflict with other filters.</P>
+		<P>The package of RemoveDirt contains RemoveDirt.dll (staticly linked). Requires SSE2. 
+            Copy it to Avisynth's plugin directory (for 32 and 64 bits separately).</P>
 		<H2><FONT size="6">Usage</FONT></H2>
 		<center>RestoreMotionBlocks(filtered, restore, neighbour, neighbour2, alternative, 
 			gmthreshold, mthreshold, pthreshold, cthreshold, noise, noisy, dist, tolerance, 
@@ -357,12 +347,11 @@
 			boundary pixels. Thus the optimal solution is to crop afterwards and then only 
 			by multiples of 8, which unfortunately is not always possible.
 		</P>
-		<P>2. <STRONG>Crop only with "align=true"</STRONG>. RestoreMotionBlocks heavily 
-			uses SSE/SSE2 instructions. If you crop without "align= true" before 
+		<P>2. Avisynth 2.6 hint: <STRONG>Crop only with "align=true"</STRONG>. 
+            RestoreMotionBlocks uses SSE2 instructions. If you crop without "align= true" before 
 			RestoreMotionBlocks, then the data on the frames may not be properly aligned 
-			and RemoveDirt will execute substantially slower. This is particularily 
-			important for the SSE2 version. As a consequence you should always crop with 
-			Avisynth and not&nbsp;with DVD2AVI or DGIndex.</P>
+			and RemoveDirt will execute substantially slower. As a consequence you should 
+            always crop with Avisynth and not&nbsp;with DVD2AVI or DGIndex.</P>
 		<P>3. <STRONG>Telecined movies must be inverse telecined before RemoveDirt</STRONG>. 
 			If a film is telecined some fields are doubled in order to increase the frame 
 			rate from 24fps to 30fps. Hence on such doubled fields the basic property of 
