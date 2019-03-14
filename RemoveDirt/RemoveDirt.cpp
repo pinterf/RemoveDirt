@@ -863,15 +863,16 @@ class   Postprocessing
   int   linewidthUV;
   int   chromaheight;
   int   chromaheightm;  // = chromaheight - 1
+  int   xRatioUV;
   int   pthreshold;
   int   cthreshold;
   uint32_t (*vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
   void (*copy_chroma)(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch);
   uint32_t (*test_vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
-
 public:
   int       loops;
   int       restored_blocks;
+  void(Postprocessing::*postprocessing)(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV);
 
 #define leftdp      (-1)
 #define rightdp     7
@@ -965,18 +966,20 @@ public:
     } while (to_restore != 0);
   }
 
-#define Cleftdp     (-1)
-#define Crightdp    3
-#define Cleftsp     Cleftdp
-#define Crightsp    Crightdp
-#define Crightbldp  4
-#define Crightblsp  Crightbldp
-#define Ctopdp      (-dpitchUV)
-#define Ctopsp      (-spitchUV)
 
-
-  void  postprocessing(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV)
+  template<int blksizeX>
+  void  postprocessing_core(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV)
   {
+    constexpr int Cleftdp = -1;
+    constexpr int Crightdp = blksizeX - 1;
+    constexpr int Cleftsp = Cleftdp;
+    constexpr int Crightsp = Crightdp;
+    constexpr int Crightbldp = blksizeX;
+    constexpr int Crightblsp = Crightbldp;
+
+    const int Ctopdp = -dpitchUV;
+    const int Ctopsp = -spitchUV;
+
     int bottomdp = 7 * dpitch;
     int bottomsp = 7 * spitch;
     int Cbottomdp = chromaheightm * dpitchUV;
@@ -1102,9 +1105,11 @@ public:
             u_color = u_pcolor; v_color = v_pcolor;
           }
           colorise(u, v, pitchUV, chromaheight, u_color, v_color); // FIXME: h subsampling
+          if(xRatioUV == 1)
+            colorise(u + 4, v + 4, pitchUV, chromaheight, u_color, v_color); // FIXME: h subsampling
         }
-        u += MOTIONBLOCKWIDTH / 2; // FIXME: h subsampling
-        v += MOTIONBLOCKWIDTH / 2; // FIXME: h subsampling
+        u += MOTIONBLOCKWIDTH / xRatioUV;
+        v += MOTIONBLOCKWIDTH / xRatioUV;
         ++properties;
       } while (--i);
       u += inc;
@@ -1113,22 +1118,33 @@ public:
     } while (--j);
   }
 
-  Postprocessing(int width, int height, int dist, int tolerance, int dmode, uint32_t threshold, int _noise, int _noisy, bool yuy2, int _pthreshold, int _cthreshold, IScriptEnvironment* env)
+  Postprocessing(int width, int height, int dist, int tolerance, int dmode, uint32_t threshold, int _noise, int _noisy, bool yuy2, int _pthreshold, int _cthreshold, 
+    int _xRatioUV, int _yRatioUV, IScriptEnvironment* env)
     : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, _noise, _noisy, env)
-    , pthreshold(_pthreshold), cthreshold(_cthreshold)
+    , pthreshold(_pthreshold), cthreshold(_cthreshold), xRatioUV(_xRatioUV)
   {
-    test_vertical_diff_chroma = test_vertical_diff_chroma_core<4>;
-    vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<4> : test_vertical_diff_chroma_core<4>;
-    copy_chroma = copy_chroma_core<4,4>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
-    linewidthUV = linewidth / 2;
-    chromaheight = MOTIONBLOCKHEIGHT / 2;
-    if (yuy2)
-    {
+    if (_yRatioUV == 1) {
       test_vertical_diff_chroma = test_vertical_diff_chroma_core<8>;
-      chromaheight *= 2;
       vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<8> : test_vertical_diff_chroma_core<8>;
-      copy_chroma = copy_chroma_core<4,8>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
     }
+    else { // 2
+      test_vertical_diff_chroma = test_vertical_diff_chroma_core<4>;
+      vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<4> : test_vertical_diff_chroma_core<4>;
+    }
+
+    if(_xRatioUV == 1) // YV24
+      postprocessing = &Postprocessing::postprocessing_core<8>;
+    else // YV16, YV12
+      postprocessing = &Postprocessing::postprocessing_core<4>;
+
+    if(_xRatioUV == 1 && _yRatioUV == 1) // 4:4:4 YV24
+      copy_chroma = copy_chroma_core<8, 8>;
+    else if (_xRatioUV == 2 && _yRatioUV == 1) // 4:2:2 YV16 YUY2
+      copy_chroma = copy_chroma_core<4, 8>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
+    else if (_xRatioUV == 2 && _yRatioUV == 2) // 4:2:0 YV12
+      copy_chroma = copy_chroma_core<4, 4>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
+    linewidthUV = linewidth / _xRatioUV;
+    chromaheight = MOTIONBLOCKHEIGHT / _yRatioUV;
     chromaheightm = chromaheight - 1;
   }
 };
@@ -1267,8 +1283,9 @@ public:
   int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
 
 
-  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, IScriptEnvironment* env)
-    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, yuy2, pthreshold, cthreshold, env)
+  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
+    int _xRatioUV, int _yRatioUV, IScriptEnvironment* env)
+    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, yuy2, pthreshold, cthreshold, _xRatioUV, _yRatioUV, env)
     , AccessFrame(_width, yuy2), grey(_grey), show(_show)
   {
     blocks = debug ? (hblocks * vblocks) : 0;
@@ -1293,7 +1310,7 @@ int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &p
   int   srcPitchUV = GetPitchUV(src);
 
   if (grey) postprocessing_grey(destY, destPitchY, srcY, srcPitchY);
-  else postprocessing(destY, destPitchY, destU, destV, destPitchUV, srcY, srcPitchY, srcU, srcV, srcPitchUV);
+  else (*this.*postprocessing)(destY, destPitchY, destU, destV, destPitchUV, srcY, srcPitchY, srcU, srcV, srcPitchUV);
 
   if (show) show_motion(destU, destV, destPitchUV);
 
@@ -1422,16 +1439,37 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
 {
   VideoInfo &vi = filter->vi;
 
-  if (!vi.IsYV12() && !(vi.IsYUY2() && args[PLANAR].AsBool(false)))
-    env->ThrowError("RemoveDirt: only YV12 and planar YUY2 clips are supported");
+  if (vi.BitsPerComponent() != 8)
+    env->ThrowError("RemoveDirt: only 8 bit color spaces are supported");
+
+  if (vi.IsYUY2() && !args[PLANAR].AsBool(false))
+    env->ThrowError("RemoveDirt: native YUY2 not supported, use YV16 or the planar hack with planar=true");
+
+  if (vi.IsYV411())
+    env->ThrowError("RemoveDirt: YV411 not supported");
+
+  if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA())
+    env->ThrowError("RemoveDirt: only Y, planar YUV(A) and planar YUY2 clips are supported");
 
   int   pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
 
+  int xRatioUV = 1;
+  int yRatioUV = 1;
+  if (vi.IsYUY2()) {
+    xRatioUV = 2;
+    yRatioUV = 1;
+  } 
+  else if (!vi.IsY()) {
+    xRatioUV = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
+    yRatioUV = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
+  }
+
+  const bool grey = vi.IsY() || args[GREY].AsBool(false); // fallback to compulsory grey mode
 
   filter->rd = new RemoveDirt(vi.width, vi.height, args[DIST].AsInt(DEFAULT_DIST), args[TOLERANCE].AsInt(DEFAULT_TOLERANCE), args[DMODE].AsInt(0)
     , args[MTHRES].AsInt(DEFAULT_MTHRESHOLD), args[NOISE].AsInt(0), args[NOISY].AsInt(-1), vi.IsYUY2()
     , pthreshold, args[CTHRES].AsInt(pthreshold)
-    , args[GREY].AsBool(false), args[SHOW].AsBool(false), args[DEBUG].AsBool(false), env);
+    , grey, args[SHOW].AsBool(false), args[DEBUG].AsBool(false), xRatioUV, yRatioUV, env);
 
 
   filter->mthreshold = (args[GMTHRES].AsInt(DEFAULT_GMTHRESHOLD) * filter->rd->hblocks * filter->rd->vblocks) / 100;
@@ -1583,8 +1621,17 @@ public:
   SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
     : GenericVideoFilter(clip), AccessFrame(vi.width, vi.IsYUY2()), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
   {
-    if (!vi.IsYV12() && !(vi.IsYUY2() && planar)) 
-      env->ThrowError("SCSelect: only YV12 and planar YUY2 clips are supported");
+    if (vi.BitsPerComponent() != 8)
+      env->ThrowError("SCSelect: only 8 bit color spaces are supported");
+
+    if (vi.IsYUY2() && !planar)
+      env->ThrowError("SCSelect: native YUY2 not supported, use YV16 or the planar hack with planar=true");
+
+    if (vi.IsYV411())
+      env->ThrowError("SCSelect: YV411 not supported");
+
+    if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA())
+      env->ThrowError("SCSelect: only Y, planar YUV(A) and planar YUY2 clips are supported");
 
     CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
