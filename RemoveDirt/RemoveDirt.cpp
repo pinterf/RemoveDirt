@@ -404,8 +404,8 @@ public:
 
   MotionDetection(int   width, int height, uint32_t _threshold, int _noise, int _noisy, IScriptEnvironment* env) : threshold(_threshold), noise(_noise)
   {
-
-    hblocks = (linewidth = width) / MOTIONBLOCKWIDTH;
+    linewidth = width;
+    hblocks = width / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
     bool use_SSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
@@ -428,8 +428,9 @@ public:
         threshold = _noisy;
       }
     }
-    int size;
-    blockproperties_addr = new unsigned char[size = (nline = hblocks + 1)*(vblocks + 2)];
+    nline = hblocks + 1;
+    int size = nline*(vblocks + 2);
+    blockproperties_addr = new unsigned char[size];
     blockproperties = blockproperties_addr + nline;
     pline = -nline;
     memset(blockproperties_addr, BMARGIN, size);
@@ -1426,7 +1427,7 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
 {
   VideoInfo &vi = filter->vi;
 
-  if (vi.IsRGB() || (vi.IsYV12() + args[PLANAR].AsBool(false) == 0))
+  if (!vi.IsYV12() && !(vi.IsYUY2() && args[PLANAR].AsBool(false)))
     env->ThrowError("RemoveDirt: only YV12 and planar YUY2 clips are supported");
 
   int   pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
@@ -1582,7 +1583,9 @@ public:
   SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
     : GenericVideoFilter(clip), AccessFrame(vi.width, vi.IsYUY2()), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
   {
-    if (vi.IsYV12() + planar == 0) env->ThrowError("SCSelect: only YV12 and planar YUY2 clips are supported");
+    if (!vi.IsYV12() && !(vi.IsYUY2() && planar)) 
+      env->ThrowError("SCSelect: only YV12 and planar YUY2 clips are supported");
+
     CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect", env);
