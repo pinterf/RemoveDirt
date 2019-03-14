@@ -702,7 +702,7 @@ static __forceinline int32_t vertical_diff(const uint8_t *p, int32_t pitch)
 template<int blksizeY>
 uint32_t vertical_diff_chroma_core(const BYTE *u, const BYTE *v, int pitch)
 {
-  assert(blksizeY == 4 || bkksizeY == 8);
+  assert(blksizeY == 4 || blksizeY == 8);
 
   __m128i xmm0 = _mm_undefined_si128();
   __m128i xmm1 = _mm_undefined_si128();
@@ -788,7 +788,7 @@ uint32_t test_vertical_diff(const BYTE *p, int pitch)
 template<int blksizeY>
 uint32_t test_vertical_diff_chroma_core(const BYTE *u, const BYTE *v, int pitch)
 {
-  assert(blksizeY == 4 || bkksizeY == 8);
+  assert(blksizeY == 4 || blksizeY == 8);
 
   int res = 0;
   int   i = 4;
@@ -1123,7 +1123,7 @@ public:
   {
     test_vertical_diff_chroma = test_vertical_diff_chroma_core<4>;
     vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<4> : test_vertical_diff_chroma_core<4>;
-    copy_chroma = copy_chroma_core<4,4>;
+    copy_chroma = copy_chroma_core<4,4>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
     linewidthUV = linewidth / 2;
     chromaheight = MOTIONBLOCKHEIGHT / 2;
     if (yuy2)
@@ -1131,7 +1131,7 @@ public:
       test_vertical_diff_chroma = test_vertical_diff_chroma_core<8>;
       chromaheight *= 2;
       vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<8> : test_vertical_diff_chroma_core<8>;
-      copy_chroma = copy_chroma_core<4,8>;
+      copy_chroma = copy_chroma_core<4,8>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
     }
     chromaheightm = chromaheight - 1;
   }
@@ -1346,6 +1346,10 @@ protected:
   int       lastframe;
   int       before_offset, after_offset;
 
+  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+    return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE /*MT_SERIALIZED*/ : 0;
+  }
+
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
   {
     if ((n + before_offset < 0) || (n + after_offset > lastframe)) return alternative->GetFrame(n, env);
@@ -1384,8 +1388,6 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
 #ifdef  RANGEFILES
   select = new unsigned char[vi.num_frames];
 #endif
-  child->SetCacheHints(CACHE_NOTHING, 0);
-  restore->SetCacheHints(CACHE_GENERIC, 0);
   lastframe = vi.num_frames - 1;
   before_offset = after_offset = 0;
   if (after == NULL)
@@ -1395,8 +1397,6 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   }
   if (before != NULL)
   {
-    after->SetCacheHints(CACHE_GENERIC, 0);
-    before->SetCacheHints(CACHE_GENERIC, 0);
   }
   else
   {
@@ -1404,15 +1404,14 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
     before_offset = -1;
     after_offset = 1;
     before = after;
-    after->SetCacheHints(CACHE_GENERIC, 2);
   }
-  if (alternative == NULL) alternative = restore;
-  else alternative->SetCacheHints(CACHE_GENERIC, 0);
+  if (alternative == NULL)
+    alternative = restore;
+
   CompareVideoInfo(vi, restore->GetVideoInfo(), "RemoveDirt", env);
   CompareVideoInfo(vi, before->GetVideoInfo(), "RemoveDirt", env);
   CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt", env);
 }
-
 
 #ifdef  RANGEFILES
 
@@ -1536,10 +1535,15 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
   PClip scene_begin;
   PClip scene_end;
   PClip global_motion;
-  uint32_t lastdiff; // FIXME: huge image dimensions?
+  uint32_t lastdiff; // FIXME: huge image dimensions require int64?
   uint32_t lnr;
   bool debug;
   double dirmult;
+
+  // lastdiff and lnr variable: not MT friendly
+  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+    return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
+  }
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
   {
@@ -1612,7 +1616,7 @@ const AVS_Linkage *AVS_linkage = 0;
 // DLL entry point called from LoadPlugin() to setup a user plugin.
 extern "C" __declspec(dllexport) const char* __stdcall
 AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
-  /* New 2.6 requirment!!! */
+  /* New 2.6 requirement!!! */
   // Save the server pointers.
   AVS_linkage = vectors;
 #ifdef  DEBUG_NAME
