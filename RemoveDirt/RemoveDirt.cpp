@@ -35,11 +35,6 @@
 //#define TEST_VERTICAL_DIFF
 //#define TEST_VERTICAL_DIFF_CHROMA
 
-// PF: This USE_DOUBLE_H_SIZED_BLOCKS define triggers old *"SSE2" mode with 2x8 pixel wide code paths instead of 8x8 pixels
-// not visibly faster but makes the code difficult.
-// *Code is using SSE2 for 8 pixel modes as well, no MMX any more
-// #define USE_DOUBLE_H_SIZED_BLOCKS
-
 #define MOTIONBLOCKWIDTH  8
 #define MOTIONBLOCKHEIGHT 8
 
