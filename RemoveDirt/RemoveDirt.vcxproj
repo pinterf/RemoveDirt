@@ -153,6 +153,8 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
       <BufferSecurityCheck>false</BufferSecurityCheck>
+      <OmitFramePointers>true</OmitFramePointers>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -176,6 +178,8 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
       <BufferSecurityCheck>false</BufferSecurityCheck>
+      <OmitFramePointers>true</OmitFramePointers>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
