@@ -1,7 +1,8 @@
-#define LOGO "RemoveDirt 0.9\n"
+#define LOGO "RemoveDirt 0.9.1\n"
 // Avisynth filter for removing dirt from film clips
 //
 // By Rainer Wittmann <gorw@gmx.de>
+// Additional work by Ferenc Pintér
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
