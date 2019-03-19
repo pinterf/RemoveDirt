@@ -22,6 +22,7 @@
 #include "immintrin.h"
 #include <cstdint>
 #include <cassert>
+#include <cmath>
 
 //
 // Part 1: options at compile time
@@ -1485,81 +1486,111 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
 
 }
 
-// SCSelect helper
-static uint32_t aligned_diff(const uint8_t *sp1, int32_t spitch1, const uint8_t *sp2, int32_t spitch2, int32_t width, int32_t height)
+
+template<typename pixel_t>
+static int64_t calculate_sad_c(const BYTE* cur_ptr, int cur_pitch, const BYTE* other_ptr, int other_pitch, int32_t width, int32_t height)
 {
-  __m128i sum = _mm_setzero_si128();
+  const pixel_t *ptr1 = reinterpret_cast<const pixel_t *>(cur_ptr);
+  const pixel_t *ptr2 = reinterpret_cast<const pixel_t *>(other_ptr);
+  cur_pitch /= sizeof(pixel_t);
+  other_pitch /= sizeof(pixel_t);
 
-  const int wmod32 = width / 32;
+  // for fullframe float may lose precision
+  typedef typename std::conditional < std::is_floating_point<pixel_t>::value, double, __int64>::type sum_t;
+  // for one row int is enough and faster than int64
+  typedef typename std::conditional < std::is_floating_point<pixel_t>::value, float, int>::type sumrow_t;
+  sum_t sum = 0;
 
-  for (int h = 0; h < height; h++) {
-    for (int x = 0; x < wmod32; x += 32) {
-      __m128i src1_lo = _mm_load_si128((__m128i*)sp1 + x);
-      __m128i src2_lo = _mm_load_si128((__m128i*)sp2 + x);
-      auto absdiff = _mm_sad_epu8(src1_lo, src2_lo);
-
-      sum = _mm_add_epi32(sum, absdiff);
-
-      __m128i src1_hi = _mm_load_si128((__m128i*)(sp1 + x + 16));
-      __m128i src2_hi= _mm_load_si128((__m128i*)(sp2 + x + 16));
-      absdiff = _mm_sad_epu8(src1_hi, src2_hi);
-
-      sum = _mm_add_epi32(sum, absdiff);
+  for (int y = 0; y < height; ++y) {
+    sumrow_t sumrow = 0;
+    for (int x = 0; x < width; ++x) {
+      sumrow += std::abs(ptr1[x] - ptr2[x]);
     }
-    sp1 += spitch1;
-    sp2 += spitch2;
+    sum += sumrow;
+    ptr1 += cur_pitch;
+    ptr2 += other_pitch;
   }
-
-  // don't care the rest non wmod32
-
-  // sums result lo 64, hi 64
-  // Note: this part was not present in v0.9 nor in VS
-  __m128i sum_hi = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(sum), _mm_castsi128_ps(sum)));
-  auto sum_final = _mm_add_epi32(sum, sum_hi);
-  return (uint32_t)_mm_cvtsi128_si32(sum_final);
-}
-
-// SCSelect helper
-static uint32_t unaligned_diff(const uint8_t *sp1, int32_t spitch1, const uint8_t *sp2, int32_t spitch2, int32_t width, int32_t height)
-{
-  __m128i sum = _mm_setzero_si128();
-
-  const int wmod32 = width / 32;
-
-  for (int h = 0; h < height; h++) {
-    for (int x = 0; x < wmod32; x += 32) {
-      __m128i src1_lo = _mm_loadu_si128((__m128i*)sp1 + x);
-      __m128i src2_lo = _mm_loadu_si128((__m128i*)sp2 + x);
-      auto absdiff = _mm_sad_epu8(src1_lo, src2_lo);
-
-      sum = _mm_add_epi32(sum, absdiff);
-
-      __m128i src1_hi = _mm_loadu_si128((__m128i*)(sp1 + x + 16));
-      __m128i src2_hi = _mm_loadu_si128((__m128i*)(sp2 + x + 16));
-      absdiff = _mm_sad_epu8(src1_hi, src2_hi);
-
-      sum = _mm_add_epi32(sum, absdiff);
-    }
-    sp1 += spitch1;
-    sp2 += spitch2;
-  }
-
-  // don't care the rest non wmod32
-
-  // sums result lo 64, hi 64
-  // Note: this horizontal summing part was not present in v0.9 nor in VS
-  __m128i sum_hi = _mm_castps_si128(_mm_movehl_ps(_mm_castsi128_ps(sum), _mm_castsi128_ps(sum)));
-  auto sum_final = _mm_add_epi32(sum, sum_hi);
-  return (uint32_t)_mm_cvtsi128_si32(sum_final);
-}
-
-// FIXME: int32 overflow over 8k?
-static uint32_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int width, int height)
-{
-  if (((intptr_t)sp1 & 15) == 0 && ((intptr_t)sp2 & 15) == 0)
-    return aligned_diff(sp1, spitch1, sp2, spitch2, width, height);
+  if (std::is_floating_point<pixel_t>::value)
+    return (int64_t)(sum * 255); // scale 0..1 based sum to 8 bit range
   else
-    return unaligned_diff(sp1, spitch1, sp2, spitch2, width, height);
+    return (int64_t)sum; // for int, scaling to 8 bit range is done outside
+}
+
+// works for uint8_t, but there is a specific, bit faster function above
+template<typename pixel_t>
+int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYTE* other_ptr, int other_pitch, int32_t width, int32_t height)
+{
+  const int rowsize = width * sizeof(pixel_t);
+  int mod16_width = rowsize / 16 * 16;
+
+  __m128i zero = _mm_setzero_si128();
+  int64_t totalsum = 0; // fullframe SAD exceeds int32 at 8+ bit
+
+  for (int y = 0; y < height; y++)
+  {
+    __m128i sum = _mm_setzero_si128(); // for one row int is enough
+    for (int x = 0; x < mod16_width; x += 16)
+    {
+      __m128i src1, src2;
+      src1 = _mm_load_si128((__m128i *) (cur_ptr + x));   // 16 bytes or 8 words
+      src2 = _mm_load_si128((__m128i *) (other_ptr + x));
+      if constexpr (sizeof(pixel_t) == 1) {
+        sum = _mm_add_epi32(sum, _mm_sad_epu8(src1, src2)); // sum0_32, 0, sum1_32, 0
+      }
+      else if constexpr (sizeof(pixel_t) == 2) {
+        __m128i greater_t = _mm_subs_epu16(src1, src2); // unsigned sub with saturation
+        __m128i smaller_t = _mm_subs_epu16(src2, src1);
+        __m128i absdiff = _mm_or_si128(greater_t, smaller_t); //abs(s1-s2)  == (satsub(s1,s2) | satsub(s2,s1))
+        // 8 x uint16 absolute differences
+        sum = _mm_add_epi32(sum, _mm_unpacklo_epi16(absdiff, zero));
+        sum = _mm_add_epi32(sum, _mm_unpackhi_epi16(absdiff, zero));
+        // sum0_32, sum1_32, sum2_32, sum3_32
+      }
+    }
+    // summing up partial sums
+    if constexpr (sizeof(pixel_t) == 2) {
+      // at 16 bits: we have 4 integers for sum: a0 a1 a2 a3
+      __m128i a0_a1 = _mm_unpacklo_epi32(sum, zero); // a0 0 a1 0
+      __m128i a2_a3 = _mm_unpackhi_epi32(sum, zero); // a2 0 a3 0
+      sum = _mm_add_epi32(a0_a1, a2_a3); // a0+a2, 0, a1+a3, 0
+    }
+
+    // sum here: two 32 bit partial result: sum1 0 sum2 0
+    __m128i sum_hi = _mm_unpackhi_epi64(sum, zero);
+    // or: __m128i sum_hi = _mm_castps_si128(_mm_movehl_ps(_mm_setzero_ps(), _mm_castsi128_ps(sum)));
+    sum = _mm_add_epi32(sum, sum_hi);
+    int rowsum = _mm_cvtsi128_si32(sum);
+
+    // rest
+    if (mod16_width != rowsize) {
+      for (size_t x = mod16_width / sizeof(pixel_t); x < rowsize / sizeof(pixel_t); ++x)
+        rowsum += std::abs(reinterpret_cast<const pixel_t *>(cur_ptr)[x] - reinterpret_cast<const pixel_t *>(other_ptr)[x]);
+    }
+
+    totalsum += rowsum;
+
+    cur_ptr += cur_pitch;
+    other_ptr += other_pitch;
+  }
+  return totalsum;
+}
+
+// SCSelect helper
+static int64_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int width, int height, int bits_per_pixel,bool useSSE2)
+{
+  if (bits_per_pixel == 8)
+    if(useSSE2)
+      return calculate_sad_8_or_16_sse2<uint8_t>(sp1, spitch1, sp2, spitch2, width, height);
+    else
+      return calculate_sad_c<uint8_t>(sp1, spitch1, sp2, spitch2, width, height);
+  else if(bits_per_pixel <= 16)
+    if (useSSE2)
+      return calculate_sad_8_or_16_sse2<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
+    else
+      return calculate_sad_c<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
+  else {
+    return calculate_sad_c<float>(sp1, spitch1, sp2, spitch2, width, height);
+  }
 }
 
 #define SPOINTER(p) p.operator->()
@@ -1569,10 +1600,11 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
   PClip scene_begin;
   PClip scene_end;
   PClip global_motion;
-  uint32_t lastdiff; // FIXME: huge image dimensions require int64?
+  int64_t lastdiff; // 8k image dimensions require int64 even at 8 bits
   uint32_t lnr;
   bool debug;
   double dirmult;
+  bool useSSE2;
 
   // lastdiff and lnr variable: not MT friendly
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
@@ -1597,16 +1629,43 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
     }
     else
     {
+      const bool isRGB = vi.IsRGB();
       PVideoFrame sf = child->GetFrame(n, env);
       if (lnr != n - 1)
       {
         PVideoFrame pf = child->GetFrame(n - 1, env);
-        lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(pf), GetPitchY(pf), vi.width, vi.height);
+        if (isRGB) {
+          const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
+
+          lastdiff = 0;
+          // RGB: sum all planes
+          for (int p = 0; p < 3; p++)
+          {
+            int plane = planes[p];
+            lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), pf->GetReadPtr(plane), pf->GetPitch(plane), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+          }
+        }
+        else {
+          lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(pf), GetPitchY(pf), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+        }
       }
-      int olddiff = lastdiff;
+      int64_t olddiff = lastdiff;
       {
         PVideoFrame nf = child->GetFrame(n + 1, env);
-        lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(nf), GetPitchY(nf), vi.width, vi.height);
+        if (isRGB) {
+          // RGB: sum all planes
+          const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
+
+          lastdiff = 0;
+          for (int p = 0; p < 3; p++)
+          {
+            int plane = planes[p];
+            lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), nf->GetReadPtr(plane), nf->GetPitch(plane), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+          }
+        }
+        else {
+          lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(nf), GetPitchY(nf), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+        }
         lnr = n;
       }
       if (dirmult * olddiff < lastdiff) goto set_end;
@@ -1621,17 +1680,13 @@ public:
   SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
     : GenericVideoFilter(clip), AccessFrame(vi.width, vi.IsYUY2()), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
   {
-    if (vi.BitsPerComponent() != 8)
-      env->ThrowError("SCSelect: only 8 bit color spaces are supported");
+    // all bit-depths are supported
 
     if (vi.IsYUY2() && !planar)
       env->ThrowError("SCSelect: native YUY2 not supported, use YV16 or the planar hack with planar=true");
 
-    if (vi.IsYV411())
-      env->ThrowError("SCSelect: YV411 not supported");
-
-    if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA())
-      env->ThrowError("SCSelect: only Y, planar YUV(A) and planar YUY2 clips are supported");
+    if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA() && !vi.IsPlanarRGB() && !vi.IsPlanarRGBA())
+      env->ThrowError("SCSelect: only Y, YUV(A), planar RGB(A) and planar YUY2 clips are supported");
 
     CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
@@ -1641,6 +1696,8 @@ public:
     scene_end->SetCacheHints(CACHE_GENERIC, 0);
     if (gcache >= 0) global_motion->SetCacheHints(CACHE_GENERIC, 0);
     if (cache >= 0) child->SetCacheHints(CACHE_GENERIC, cache);
+
+    useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
   }
 };
 
