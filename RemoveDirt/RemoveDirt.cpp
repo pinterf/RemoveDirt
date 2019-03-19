@@ -122,29 +122,10 @@ static uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, i
   return sum;
 }
 
-// FIXME: to be removed - mimics a hand-optimized MMX code but present compiler likes basic siple SAD algorithm better - we'll use Sad_C instead
 template<int blksizeX, int blksizeY>
 uint32_t test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
 {
-  pitch1 -= blksizeX;
-  pitch2 -= blksizeX;
-  int   res = 0;
-  int   i = blksizeY;
-  do
-  {
-    int j = blksizeX;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if (diff < 0) diff = -diff;
-      res += diff;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  return res;
+  return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
 
 template<int blksizeX, int blksizeY>
