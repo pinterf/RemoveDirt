@@ -2,6 +2,11 @@
 
 Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces
 
+- (20190319 v0.9.??)
+  - SCSelect: add support for 10-16 bits and 32 bit float clips
+  - SCSelect: add support for planar RGB
+  - FIX: SCSelect: make it work properly for large frames (>8MPixel)
+
 - (20190314 v0.9.1)
   - project moved to github: https://github.com/pinterf/RemoveDirt
   - built using Visual Studio 2017
