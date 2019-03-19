@@ -123,13 +123,13 @@ static uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, i
 }
 
 template<int blksizeX, int blksizeY>
-uint32_t test_SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
+uint32_t SADcompare_C(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
 {
   return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
 
 template<int blksizeX, int blksizeY>
-uint32_t test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t NSADcompare_C(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   pitch1 -= blksizeX;
   pitch2 -= blksizeX;
@@ -155,7 +155,7 @@ uint32_t test_NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2
 }
 
 template<int blksizeX, int blksizeY>
-uint32_t test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t ExcessPixels_C(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   pitch1 -= blksizeX;
   pitch2 -= blksizeX;
@@ -185,7 +185,7 @@ uint32_t test_ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch
 * SIMD functions
 ****************************************************/
 
-uint32_t SADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/) {
+uint32_t SADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/) {
   // optimizer makes it fast for SIMD
   return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
@@ -195,7 +195,7 @@ static __forceinline __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
   return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(x), (double *)p));
 }
 
-uint32_t NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t NSADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   __m128i noise_vector = _mm_set1_epi8(noise);
   auto zero = _mm_setzero_si128();
@@ -252,7 +252,7 @@ uint32_t NSADcompare(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int
   return (uint32_t)_mm_cvtsi128_si32(count_final);
 }
 
-uint32_t ExcessPixels(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t ExcessPixels_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   __m128i noise_vector = _mm_set1_epi8(noise);
   auto zero = _mm_setzero_si128();
@@ -342,7 +342,7 @@ public:
   int   hblocks, vblocks;
   uint32_t threshold;
 
-  uint32_t (*test_blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
+  uint32_t (*blockcompare_C)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
 
   void  markblocks(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
   {
@@ -361,7 +361,7 @@ public:
         properties[0] = 0;
 #ifdef  TEST_BLOCKCOMPARE
         int d;
-        if ((d = blockcompare(p1, pitch1, p2, pitch2, noise) - test_blockcompare(p1, pitch1, p2, pitch2, noise)) != 0)
+        if ((d = blockcompare(p1, pitch1, p2, pitch2, noise) - blockcompare_C(p1, pitch1, p2, pitch2, noise)) != 0)
           debug_printf("blockcompare test fails with difference = %i\n", d);
 #endif
         if (blockcompare(p1, pitch1, p2, pitch2, noise) >= threshold)
@@ -392,17 +392,17 @@ public:
     if (!use_SSE2 & ((hblocks == 0) || (vblocks == 0)))
         env->ThrowError("RemoveDirt: width or height of the clip too small");
 
-    blockcompare = use_SSE2 ? SADcompare : test_SADcompare<8, 8>;
-    test_blockcompare = test_SADcompare<8, 8>;
+    blockcompare = use_SSE2 ? SADcompare_simd : SADcompare_C<8, 8>;
+    blockcompare_C = SADcompare_C<8, 8>;
     if (noise > 0)
     {
-      test_blockcompare = test_NSADcompare<8,8>;
-      blockcompare = use_SSE2 ? NSADcompare : test_NSADcompare<8,8>;
+      blockcompare_C = NSADcompare_C<8,8>;
+      blockcompare = use_SSE2 ? NSADcompare_simd : NSADcompare_C<8,8>;
 
       if (_noisy >= 0)
       {
-        test_blockcompare = test_ExcessPixels<8,8>;
-        blockcompare = use_SSE2 ? ExcessPixels : test_ExcessPixels<8,8>;
+        blockcompare_C = ExcessPixels_C<8,8>;
+        blockcompare = use_SSE2 ? ExcessPixels_simd : ExcessPixels_C<8,8>;
         threshold = _noisy;
       }
     }
@@ -626,7 +626,14 @@ void MotionDetectionDist::markneighbours()
 
 }
 
-uint32_t horizontal_diff(const BYTE *p, int pitch)
+template<typename pixel_t>
+uint32_t horizontal_diff_C(const uint8_t *p, int pitch)
+{
+  return Sad_C<8, 1, pixel_t>(p, pitch, p + pitch, pitch);
+}
+
+// FIXME: implement uint16_t
+uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
 {
   // 8 pixels
   auto src1 = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(p));
@@ -634,7 +641,16 @@ uint32_t horizontal_diff(const BYTE *p, int pitch)
   return _mm_cvtsi128_si32(_mm_sad_epu8(src1, src2)); // 8 pixels, lower sad result
 }
 
-uint32_t horizontal_diff_chroma(const BYTE *u, const BYTE *v, int pitch)
+// FIXME: not only for horizontal chroma size 4
+template<typename pixel_t>
+uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
+{
+  return Sad_C<4, 1, pixel_t>(u, pitch, u + pitch, pitch) + Sad_C<4, 1, pixel_t>(v, pitch, v + pitch, pitch);
+}
+
+// FIXME: implement uint16_t
+// FIXME: not only for horizontal chroma size 4
+uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pitch)
 {
   // interleave u and v as 2x4 pixels then do sad
   auto src1_u = _mm_cvtsi32_si128(*(reinterpret_cast<const int *>(u)));
@@ -644,7 +660,8 @@ uint32_t horizontal_diff_chroma(const BYTE *u, const BYTE *v, int pitch)
   return _mm_cvtsi128_si32(_mm_sad_epu8(_mm_unpacklo_epi32(src1_u, src1_v), _mm_unpacklo_epi32(src2_u, src2_v)));
 }
 
-static __forceinline int32_t vertical_diff(const uint8_t *p, int32_t pitch)
+// FIXME: implement uint16_t
+static __forceinline uint32_t vertical_diff_simd(const uint8_t *p, int32_t pitch)
 {
   __m128i xmm0 = _mm_undefined_si128();
   __m128i xmm1 = _mm_undefined_si128();
@@ -678,7 +695,7 @@ static __forceinline int32_t vertical_diff(const uint8_t *p, int32_t pitch)
 // vertical_diff_yv12_chroma: vertical_diff_chroma<4>
 // vertical_diff_yuy2_chroma: vertical_diff_chroma<8>
 template<int blksizeY>
-uint32_t vertical_diff_chroma_core(const BYTE *u, const BYTE *v, int pitch)
+uint32_t vertical_diff_chroma_core_simd(const uint8_t *u, const uint8_t *v, int pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -745,9 +762,9 @@ uint32_t vertical_diff_chroma_core(const BYTE *u, const BYTE *v, int pitch)
   return _mm_cvtsi128_si32(absdiff);
 }
 
-// usually test_vertical_diff<8>
+// usually vertical_diff_C<8>
 template<int blocksizeY>
-uint32_t test_vertical_diff(const BYTE *p, int pitch)
+uint32_t vertical_diff_core_C(const uint8_t *p, int pitch)
 {
   int   res = 0;
   int   i = blocksizeY;
@@ -761,10 +778,10 @@ uint32_t test_vertical_diff(const BYTE *p, int pitch)
   return    res;
 }
 
-// test_vertical_diff_yv12_chroma: test_vertical_diff_chroma<4>
-// test_vertical_diff_yuy2_chroma: test_vertical_diff_chroma<8>
+// vertical_diff_yv12_chroma_c: vertical_diff_chroma<4>
+// vertical_diff_yuy2_chroma_c: vertical_diff_chroma<8>
 template<int blksizeY>
-uint32_t test_vertical_diff_chroma_core(const BYTE *u, const BYTE *v, int pitch)
+uint32_t vertical_diff_chroma_core_C(const uint8_t *u, const uint8_t *v, int pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -813,18 +830,19 @@ void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int nSrcPitch)
   }
 }
 
-void __stdcall copy8x8(BYTE *dest, int dpitch, const BYTE *src, int spitch)
+template<int nBlkWidth, int nBlkHeight, typename pixel_t>
+void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int spitch)
 {
-  Copy_C<8, 8, uint8_t>(dest, dpitch, src, spitch);
+  Copy_C<8, 8, pixel_t>(dest, dpitch, src, spitch);
 }
 
 // copy_yv12_chroma: copy_chroma_core<4,4>
 // copy_yuy2_chroma: copy_chroma_core<4,8>
-template<int blksizeX, int blksizeY>
+template<int blksizeX, int blksizeY, typename pixel_t>
 void copy_chroma_core(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch)
 {
-  Copy_C<blksizeX, blksizeY, uint8_t>(destu, dpitch, srcu, spitch);
-  Copy_C<blksizeX, blksizeY, uint8_t>(destv, dpitch, srcv, spitch);
+  Copy_C<blksizeX, blksizeY, pixel_t>(destu, dpitch, srcu, spitch);
+  Copy_C<blksizeX, blksizeY, pixel_t>(destv, dpitch, srcv, spitch);
 }
 
 void inline colorise(BYTE *u, BYTE *v, int pitch, int height, uint32_t ucolor, uint32_t vcolor)
@@ -848,9 +866,15 @@ class   Postprocessing
   int   xRatioUV;
   int   pthreshold;
   int   cthreshold;
+  uint32_t(*vertical_diff)(const uint8_t *p, int32_t pitch);
+  uint32_t(*vertical_diff_C)(const uint8_t *p, int32_t pitch);
+  uint32_t(*horizontal_diff)(const BYTE *p, int pitch);
+  uint32_t(*horizontal_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
+  void(*copy_luma)(BYTE *dest, int dpitch, const BYTE *src, int spitch);
+
   uint32_t (*vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
   void (*copy_chroma)(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch);
-  uint32_t (*test_vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
+  uint32_t (*vertical_diff_chroma_C)(const BYTE *u, const BYTE *v, int pitch);
 public:
   int       loops;
   int       restored_blocks;
@@ -896,13 +920,13 @@ public:
         {
           if ((cl[0] & TO_CLEAN) != 0)
           {
-            copy8x8(dp2, dpitch, sp2, spitch);
+            copy_luma(dp2, dpitch, sp2, spitch);
             cl[0] &= ~TO_CLEAN;
 
             if (cl[-1] == 0)
             {
 #ifdef  TEST_VERTICAL_DIFF
-              if (vertical_diff(dp2 + leftdp, dpitch) != test_vertical_diff<8>(dp2 + leftdp, dpitch))
+              if (vertical_diff(dp2 + leftdp, dpitch) != vertical_diff_C<8>(dp2 + leftdp, dpitch))
                 debug_printf("vertical_diff incorrect\n");
 #endif
               if (vertical_diff(dp2 + leftdp, dpitch) > vertical_diff(sp2 + leftsp, spitch) + pthreshold)
@@ -997,7 +1021,7 @@ public:
         {
           if ((cl[0] & TO_CLEAN) != 0)
           {
-            copy8x8(dp2, dpitch, sp2, spitch);
+            copy_luma(dp2, dpitch, sp2, spitch);
             copy_chroma(dpU2, dpV2, dpitchUV, spU2, spV2, spitchUV);
             cl[0] &= ~TO_CLEAN;
 
@@ -1105,13 +1129,22 @@ public:
     : MotionDetectionDist(width, height, dist, tolerance, dmode, threshold, _noise, _noisy, env)
     , pthreshold(_pthreshold), cthreshold(_cthreshold), xRatioUV(_xRatioUV)
   {
+    const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+
+    vertical_diff_C = vertical_diff_core_C<8>;
+    vertical_diff = useSSE2 ? vertical_diff_simd : vertical_diff_core_C<8>;
+    copy_luma = copy_luma_C<8,8,uint8_t>;
+
+    horizontal_diff = useSSE2 ? horizontal_diff_simd : horizontal_diff_C<uint8_t>;
+    horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd : horizontal_diff_chroma_C<uint8_t>;
+
     if (_yRatioUV == 1) {
-      test_vertical_diff_chroma = test_vertical_diff_chroma_core<8>;
-      vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<8> : test_vertical_diff_chroma_core<8>;
+      vertical_diff_chroma_C = vertical_diff_chroma_core_C<8>;
+      vertical_diff_chroma = useSSE2 ? vertical_diff_chroma_core_simd<8> : vertical_diff_chroma_core_C<8>;
     }
     else { // 2
-      test_vertical_diff_chroma = test_vertical_diff_chroma_core<4>;
-      vertical_diff_chroma = (env->GetCPUFlags() & CPUF_SSE2) ? vertical_diff_chroma_core<4> : test_vertical_diff_chroma_core<4>;
+      vertical_diff_chroma_C = vertical_diff_chroma_core_C<4>;
+      vertical_diff_chroma = useSSE2 ? vertical_diff_chroma_core_simd<4> : vertical_diff_chroma_core_C<4>;
     }
 
     if(_xRatioUV == 1) // YV24
@@ -1120,11 +1153,11 @@ public:
       postprocessing = &Postprocessing::postprocessing_core<4>;
 
     if(_xRatioUV == 1 && _yRatioUV == 1) // 4:4:4 YV24
-      copy_chroma = copy_chroma_core<8, 8>;
+      copy_chroma = copy_chroma_core<8, 8, uint8_t>;
     else if (_xRatioUV == 2 && _yRatioUV == 1) // 4:2:2 YV16 YUY2
-      copy_chroma = copy_chroma_core<4, 8>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
+      copy_chroma = copy_chroma_core<4, 8, uint8_t>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
     else if (_xRatioUV == 2 && _yRatioUV == 2) // 4:2:0 YV12
-      copy_chroma = copy_chroma_core<4, 4>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
+      copy_chroma = copy_chroma_core<4, 4, uint8_t>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
     linewidthUV = linewidth / _xRatioUV;
     chromaheight = MOTIONBLOCKHEIGHT / _yRatioUV;
     chromaheightm = chromaheight - 1;
