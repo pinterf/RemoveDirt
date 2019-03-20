@@ -109,7 +109,7 @@ void    debug_printf(const char *format, ...)
 __forceinline unsigned int SADABS(int x) { return (x < 0) ? -x : x; }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-static uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
+static __forceinline uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
 {
   uint32_t sum = 0;
   for (int y = 0; y < nBlkHeight; y++)
@@ -199,8 +199,8 @@ uint32_t ExcessPixels_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitc
   {
     for (int x = 0; x < blksizeX; x++)
     {
-      int diff = p1[x] - p2[x];
-      if (diff > noise || diff < -noise) ++count;
+      int diff = std::abs(p1[x] - p2[x]);
+      if (diff > noise) ++count;
     }
     p1 += pitch1;
     p2 += pitch2;
@@ -1515,7 +1515,7 @@ public:
     } while (--j);
   }
 
-  Postprocessing(int width, int height, int dist, int tolerance, int dmode, uint32_t threshold, int _noise, int _noisy, bool yuy2, int _pthreshold, int _cthreshold, 
+  Postprocessing(int width, int height, int dist, int tolerance, int dmode, uint32_t threshold, int _noise, int _noisy, int _pthreshold, int _cthreshold, 
     int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
     : MotionDetectionDist(width, height, dist, tolerance, dmode, 
       threshold << (_bits_per_pixel - 8), 
@@ -1753,7 +1753,7 @@ public:
 
   RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
     int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
-    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, yuy2, pthreshold, cthreshold, _xRatioUV, _yRatioUV, _bits_per_pixel, env)
+    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, pthreshold, cthreshold, _xRatioUV, _yRatioUV, _bits_per_pixel, env)
     , AccessFrame(_width, yuy2), grey(_grey), show(_show)
   {
     blocks = debug ? (hblocks * vblocks) : 0;
