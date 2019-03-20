@@ -1206,27 +1206,25 @@ void copy_chroma_core(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, co
   Copy_C<blksizeX, blksizeY, pixel_t>(destv, dpitch, srcv, spitch);
 }
 
-void inline colorise(BYTE *u, BYTE *v, int pitch, int height, uint32_t ucolor, uint32_t vcolor)
+template<int blksizeY>
+void inline colorise(BYTE *u, BYTE *v, int pitch, uint32_t ucolor, uint32_t vcolor)
 {
-  int i = height;
-  do
+  for(int i = 0; i < blksizeY; i++)
   {
     *(uint32_t*)u = ucolor; // 4 bytes
     *(uint32_t*)v = vcolor;
     u += pitch;
     v += pitch;
-  } while (--i);
+  };
 }
 
 class   Postprocessing
   : public MotionDetectionDist
 {
   int   linewidthUV;
-  int   chromaheight;
-  int   chromaheightm;  // = chromaheight - 1
-  int   xRatioUV;
   int   pthreshold; // filter parameter corrected with bit depth factor
   int   cthreshold; // filter parameter corrected with bit depth factor
+
   uint32_t(*vertical_diff)(const uint8_t *p, int32_t pitch);
   uint32_t(*vertical_diff_C)(const uint8_t *p, int32_t pitch);
   uint32_t(*horizontal_diff)(const BYTE *p, int pitch);
@@ -1236,11 +1234,14 @@ class   Postprocessing
   uint32_t (*vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
   void (*copy_chroma)(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch);
   uint32_t (*vertical_diff_chroma_C)(const BYTE *u, const BYTE *v, int pitch);
+
 public:
   int       loops;
   int       restored_blocks;
+
   void(Postprocessing::*postprocessing)(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV);
   void(Postprocessing::*postprocessing_grey)(BYTE *dp, int dpitch, const BYTE *sp, int spitch);
+  void(Postprocessing::*show_motion)(BYTE *u, BYTE *v, int pitchUV);
 
 #define leftdp      (-1)
 #define rightdp     7
@@ -1339,7 +1340,7 @@ public:
   }
 
 
-  template<typename pixel_t, int blksizeXchroma>
+  template<typename pixel_t, int blksizeXchroma, int blksizeYchroma>
   void  postprocessing_core(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV)
   {
     constexpr int pixelsize = sizeof(pixel_t); // 1 or 2 bytes
@@ -1354,18 +1355,16 @@ public:
     const int Ctopdp = -dpitchUV;
     const int Ctopsp = -spitchUV;
 
-    int bottomdp = 7 * dpitch;
-    int bottomsp = 7 * spitch;
-    int Cbottomdp = chromaheightm * dpitchUV;
-    int Cbottomsp = chromaheightm * spitchUV;
+    const int bottomdp = 7 * dpitch;
+    const int bottomsp = 7 * spitch;
+    const int Cbottomdp = (blksizeYchroma - 1) * dpitchUV;
+    const int Cbottomsp = (blksizeYchroma - 1) * spitchUV;
     int dinc = MOTIONBLOCKHEIGHT * dpitch - linewidth * pixelsize;
     int sinc = MOTIONBLOCKHEIGHT * spitch - linewidth * pixelsize;
-    int dincUV = chromaheight * dpitchUV - linewidthUV * pixelsize;
-    int sincUV = chromaheight * spitchUV - linewidthUV * pixelsize;
+    int dincUV = blksizeYchroma * dpitchUV - linewidthUV * pixelsize;
+    int sincUV = blksizeYchroma * spitchUV - linewidthUV * pixelsize;
 
     loops = restored_blocks = 0;
-
-    //debug_printf("%u\n", vertical_diff(dp + 5000, dpitch)); // to see some values
 
     int to_restore;
 
@@ -1381,11 +1380,9 @@ public:
       ++loops;
       to_restore = 0;
 
-      int i = vblocks;
-      do
+      for (int y = 0; y < vblocks; y++)
       {
-        int j = hblocks;
-        do
+        for (int x = 0; x < hblocks; x++)
         {
           if ((cl[0] & TO_CLEAN) != 0)
           {
@@ -1442,7 +1439,7 @@ public:
           spU2 += Crightbldp * pixelsize;
           dpV2 += Crightbldp * pixelsize;
           spV2 += Crightbldp * pixelsize;
-        } while (--j);
+        }
         cl++;
         dp2 += dinc;
         sp2 += sinc;
@@ -1450,15 +1447,15 @@ public:
         spU2 += sincUV;
         dpV2 += dincUV;
         spV2 += sincUV;
-      } while (--i);
+      }
       restored_blocks += to_restore;
     } while (to_restore != 0);
   }
 
-  template<typename pixel_t>
-  void  show_motion(BYTE *u, BYTE *v, int pitchUV)
+  template<typename pixel_t, int blksizeXchroma, int blksizeYchroma>
+  void  show_motion_core(BYTE *u, BYTE *v, int pitchUV)
   {
-    int inc = chromaheight * pitchUV - linewidthUV * sizeof(pixel_t);
+    int inc = blksizeYchroma * pitchUV - linewidthUV * sizeof(pixel_t);
 
     unsigned char *properties = blockproperties;
 
@@ -1481,9 +1478,9 @@ public:
             {
               u_color = u_pcolor; v_color = v_pcolor;
             }
-            colorise(u, v, pitchUV, chromaheight, u_color, v_color);
-            if (xRatioUV == 1)
-              colorise(u + 4, v + 4, pitchUV, chromaheight, u_color, v_color);
+            colorise<blksizeYchroma>(u, v, pitchUV, u_color, v_color);
+            if (blksizeXchroma == 8)
+              colorise<blksizeYchroma>(u + 4, v + 4, pitchUV, u_color, v_color);
           }
           else {
             uint32_t u_color = U_N << (bits_per_pixel - 8);
@@ -1500,16 +1497,16 @@ public:
             }
             u_color = u_color + (u_color << 16); // 2 pixels
             v_color = v_color + (v_color << 16);
-            colorise(u, v, pitchUV, chromaheight, u_color, v_color); // FIXME: h subsampling
-            colorise(u + 2 * sizeof(pixel_t), v + 2 * sizeof(pixel_t), pitchUV, chromaheight, u_color, v_color);
-            if (xRatioUV == 1) {
-              colorise(u + 4 * sizeof(pixel_t), v + 4 * sizeof(pixel_t), pitchUV, chromaheight, u_color, v_color);
-              colorise(u + 6 * sizeof(pixel_t), v + 6 * sizeof(pixel_t), pitchUV, chromaheight, u_color, v_color);
+            colorise<blksizeYchroma>(u, v, pitchUV, u_color, v_color);
+            colorise<blksizeYchroma>(u + 2 * sizeof(pixel_t), v + 2 * sizeof(pixel_t), pitchUV, u_color, v_color);
+            if (blksizeXchroma == 8) {
+              colorise<blksizeYchroma>(u + 4 * sizeof(pixel_t), v + 4 * sizeof(pixel_t), pitchUV, u_color, v_color);
+              colorise<blksizeYchroma>(u + 6 * sizeof(pixel_t), v + 6 * sizeof(pixel_t), pitchUV, u_color, v_color);
             }
           }
         }
-        u += MOTIONBLOCKWIDTH * sizeof(pixel_t) / xRatioUV;
-        v += MOTIONBLOCKWIDTH * sizeof(pixel_t) / xRatioUV;
+        u += blksizeXchroma * sizeof(pixel_t);
+        v += blksizeXchroma * sizeof(pixel_t);
         ++properties;
       } while (--i);
       u += inc;
@@ -1528,8 +1525,7 @@ public:
       env)
     , 
     pthreshold(_pthreshold << (_bits_per_pixel - 8)), 
-    cthreshold(_cthreshold << (_bits_per_pixel - 8)),
-    xRatioUV(_xRatioUV)
+    cthreshold(_cthreshold << (_bits_per_pixel - 8))
   {
     const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
 
@@ -1551,21 +1547,29 @@ public:
 
       postprocessing_grey = &Postprocessing::postprocessing_grey_core<uint8_t>;
       if (_xRatioUV == 1) {// YV24
-        postprocessing = &Postprocessing::postprocessing_core<uint8_t, 8>;
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint8_t, 8> : horizontal_diff_chroma_C<uint8_t, 8>;
       }
       else {
         // YV16, YV12
-        postprocessing = &Postprocessing::postprocessing_core<uint8_t, 4>;
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint8_t, 4> : horizontal_diff_chroma_C<uint8_t, 4>;
       }
 
-      if (_xRatioUV == 1 && _yRatioUV == 1) // 4:4:4 YV24
+      if (_xRatioUV == 1 && _yRatioUV == 1) { // 4:4:4 YV24
         copy_chroma = copy_chroma_core<8, 8, uint8_t>;
-      else if (_xRatioUV == 2 && _yRatioUV == 1) // 4:2:2 YV16 YUY2
-        copy_chroma = copy_chroma_core<4, 8, uint8_t>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
-      else if (_xRatioUV == 2 && _yRatioUV == 2) // 4:2:0 YV12
-        copy_chroma = copy_chroma_core<4, 4, uint8_t>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
+        postprocessing = &Postprocessing::postprocessing_core<uint8_t, 8, 8>;
+        show_motion = &Postprocessing::show_motion_core<uint8_t, 8, 8>;
+      }
+      else if (_xRatioUV == 2 && _yRatioUV == 1) {
+        // 4:2:2 YV16 YUY2
+        copy_chroma = copy_chroma_core<4, 8, uint8_t>;
+        postprocessing = &Postprocessing::postprocessing_core<uint8_t, 4, 8>;
+        show_motion = &Postprocessing::show_motion_core<uint8_t, 4, 8>;
+      }
+      else if (_xRatioUV == 2 && _yRatioUV == 2) { // 4:2:0 YV12
+        copy_chroma = copy_chroma_core<4, 4, uint8_t>;
+        postprocessing = &Postprocessing::postprocessing_core<uint8_t, 4, 4>;
+        show_motion = &Postprocessing::show_motion_core<uint8_t, 4, 4>;
+      }
     }
     else {
       // 10-16 bits
@@ -1586,25 +1590,30 @@ public:
 
       postprocessing_grey = &Postprocessing::postprocessing_grey_core<uint16_t>;
       if (_xRatioUV == 1) { // YV24
-        postprocessing = &Postprocessing::postprocessing_core<uint16_t, 8>;
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint16_t, 8> : horizontal_diff_chroma_C<uint16_t, 8>;
       }
       else {// YV16, YV12
-        postprocessing = &Postprocessing::postprocessing_core<uint16_t, 4>;
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint16_t, 4> : horizontal_diff_chroma_C<uint16_t, 4>;
       }
 
-      if (_xRatioUV == 1 && _yRatioUV == 1) // 4:4:4 YV24
+      if (_xRatioUV == 1 && _yRatioUV == 1) { // 4:4:4 YV24
         copy_chroma = copy_chroma_core<8, 8, uint16_t>;
-      else if (_xRatioUV == 2 && _yRatioUV == 1) // 4:2:2 YV16 YUY2
-        copy_chroma = copy_chroma_core<4, 8, uint16_t>; // v0.9 was copying 8x8 for YUY2 (YV16), possible bug??? -> visible differences compared to v0.9
-      else if (_xRatioUV == 2 && _yRatioUV == 2) // 4:2:0 YV12
-        copy_chroma = copy_chroma_core<4, 4, uint16_t>; // v0.9 was copying 8x4 even for YV12, possible bug??? -> visible differences compared to v0.9
+        postprocessing = &Postprocessing::postprocessing_core<uint16_t, 8, 8>;
+        show_motion = &Postprocessing::show_motion_core<uint16_t, 8, 8>;
+      }
+      else if (_xRatioUV == 2 && _yRatioUV == 1) { // 4:2:2 YV16 YUY2
+        copy_chroma = copy_chroma_core<4, 8, uint16_t>;
+        postprocessing = &Postprocessing::postprocessing_core<uint16_t, 4, 8>;
+        show_motion = &Postprocessing::show_motion_core<uint16_t, 4, 8>;
+      }
+      else if (_xRatioUV == 2 && _yRatioUV == 2) { // 4:2:0 YV12
+        copy_chroma = copy_chroma_core<4, 4, uint16_t>;
+        postprocessing = &Postprocessing::postprocessing_core<uint16_t, 4, 4>;
+        show_motion = &Postprocessing::show_motion_core<uint16_t, 4, 4>;
+      }
     }
 
     linewidthUV = linewidth / _xRatioUV;
-    chromaheight = MOTIONBLOCKHEIGHT / _yRatioUV;
-    chromaheightm = chromaheight - 1;
   }
 };
 
@@ -1771,15 +1780,13 @@ int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &p
   int   srcPitchY = GetPitchY(src);
   int   srcPitchUV = GetPitchUV(src);
 
-  if (grey) (*this.*postprocessing_grey)(destY, destPitchY, srcY, srcPitchY);
-  else (*this.*postprocessing)(destY, destPitchY, destU, destV, destPitchUV, srcY, srcPitchY, srcU, srcV, srcPitchUV);
+  if (grey) 
+    (*this.*postprocessing_grey)(destY, destPitchY, srcY, srcPitchY);
+  else 
+    (*this.*postprocessing)(destY, destPitchY, destU, destV, destPitchUV, srcY, srcPitchY, srcU, srcV, srcPitchUV);
 
-  if (show) {
-    if(bits_per_pixel == 8)
-      show_motion<uint8_t>(destU, destV, destPitchUV);
-    else
-      show_motion<uint16_t>(destU, destV, destPitchUV);
-  }
+  if (show)
+    (*this.*show_motion)(destU, destV, destPitchUV);
 
   if (blocks) debug_printf("[%u] RemoveDirt: motion blocks = %4u(%2u%%), %4i(%2i%%), %4u(%2u%%), loops = %u\n", frame, motionblocks, (motionblocks * 100) / blocks
     , distblocks, (distblocks * 100) / (int)blocks, restored_blocks, (restored_blocks * 100) / blocks, loops);
