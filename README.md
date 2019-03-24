@@ -1,13 +1,16 @@
 # RemoveDirt - pfmod
 
-Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces
+Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces, bugfixes
 
-- (20190319 v0.9.??)
-  - RestoreMotionBlocks: 10-16 bit support. Relevant threshold and noise parameters work the same as for 8 bits.
+Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
+
+- (20190324 v0.9.2)
+  - RestoreMotionBlocks: 10-16 bit support. Relevant threshold and noise parameters are bit depth independent.
+  - minor speedup
   - SCSelect: add support for 10-16 bits and 32 bit float clips
   - SCSelect: add support for planar RGB
   - FIX: SCSelect: make it work properly for large frames (>8MPixel)
-  - FIX: SCSelect: Count with rightmost non-mod32 pixels
+  - FIX: SCSelect: Makes use the whole frame: now counts the rightmost non-mod32 pixels as well.
 
 - (20190314 v0.9.1)
   - project moved to github: https://github.com/pinterf/RemoveDirt
