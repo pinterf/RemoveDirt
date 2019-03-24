@@ -5,18 +5,18 @@
 			name="Keywords">
 	</head>
 	<body text="#000000" bgColor="#ccffcc">
-		<h1><FONT size="7">RemoveDirt 0.9.1</FONT></h1>
+		<h1><FONT size="7">RemoveDirt 0.9.2</FONT></h1>
 		<h3>An Avisynth+/Avisynth 2.6 filter for&nbsp;removing dirt from film clips</h3>
 		<p><b>By Rainer Wittmann&nbsp;<A href="mailto:gorw@gmx.de">gorw@gmx.de</A></b></p>
         <p><b>Updated in 2019 by Ferenc Pintér, project page: https://github.com/pinterf/RemoveDirt
-		<p><b>The 0.9 version of this document was available at <A href="http://www.RemoveDirt.de.tf">
-					www.RemoveDirt.de.tf </A></b>
 		</p>
-		<p><b>The <A href="RemoveDirt.zip">binary</A> and the <A href="RemoveDirt-src.zip">source 
-					code</A> are subject to the <A href="http://www.gnu.org/copyleft/gpl.html" target="_blank">
+		<p><b>The binary and the source code are subject to the <A href="http://www.gnu.org/copyleft/gpl.html" target="_blank">
 					GNU General Public License</A>.</b></p>
 		<H2><FONT size="6">Introduction</FONT></H2>
-		<P>Version 0.8 of this plugin has been completely rewritten from scratch. It no 
+		<P>(History from 2005:<br />
+		    The 0.9 version of this document was available at <A href="http://www.RemoveDirt.de.tf">
+			www.RemoveDirt.de.tf </A><br />
+            Version 0.8 of this plugin has been completely rewritten from scratch. It no 
 			more contains a RemoveDirt filter. It now only contains the filter 
 			RestoreMotionBlocks, which is the&nbsp;core element of the AVS script function 
 			RemoveDirt discussed below. The old RemoveDirt suffered from two problems. 
@@ -37,16 +37,19 @@
 			you&nbsp;have questions or suggestions about RemoveDirt or ResoterMotionBlocks, 
 			don't&nbsp;hesitate to post&nbsp;in the <A href="http://forum.doom9.org/showthread.php?s=&amp;threadid=70856">
 				RemoveDirt thread</A>&nbsp;of the doom9 forum rather than sending me email.
+            )
 		</P>
-		<P>RemoveDirt v0.9.1 supports the color spaces Y8, YV12, YV16, YV24 and planar YUY2.
-            If possible, don't use YUY2, use YV16 instead.
-            If you still want to use it with YUY2 clips, you have to convert from interleaved 
-            YUY2 to planar YUY2 before RestoreMotionBlocks and then back to interleaved YUY2 
-            with the filters Interleaved2Planar and Planar2Interleaved from SSETools plugin.
-            </P>
+		<P>Beginning with version 0.9.1 (2019) RemoveDirt supports Avisynth 2.6 interface and the 
+           color spaces Y8, YV12, YV16, YV24 and planar YUY2.<br />
+           Version 0.9.2 added 10-16 bit colorspaces as well (Avisynth+ required).<br /><br />
+           YUY2 support (by using the planar hack with Interleaved2Planar and Planar2Interleaved)
+           is kept only for compatibility reasons. If possible, don't use YUY2, use YV16 instead 
+           (Avisynth function ConvertToYV16). Conversion is lossless.<br />
+        </P>
 		<H2><FONT size="6">Installation</FONT></H2>
-		<P>The package of RemoveDirt contains RemoveDirt.dll (staticly linked). Requires SSE2. 
-            Copy it to Avisynth's plugin directory (for 32 and 64 bits separately).</P>
+		<P>The package of RemoveDirt contains x86 and x64 versions of RemoveDirt.dll
+           (statically linked). Requires SSE2. Copy it to Avisynth's plugin directory 
+           (for 32 and 64 bits separately).</P>
 		<H2><FONT size="6">Usage</FONT></H2>
 		<center>RestoreMotionBlocks(filtered, restore, neighbour, neighbour2, alternative, 
 			gmthreshold, mthreshold, pthreshold, cthreshold, noise, noisy, dist, tolerance, 
@@ -55,7 +58,7 @@
 			type (same width, height and color space). The number of frames is the minimum 
 			of the length of all these five clips. The first two variables are mandatory. 
 			"filtered" is usually an aggressively filtered clip, from which motion 
-			artifacts have to removed. If RestoreMotionBlocks identfies an 8x8 block as a 
+			artifacts have to removed. If RestoreMotionBlocks identifies an 8x8 block as a 
 			motion block, it copies this block from the clip "restore" to the clip 
 			"filtered". This is the basic operation of RestoreMotionBlocks. To identify 
 			motion blocks RestoreMotionBlocks uses the clip "neighbour". The default value 
@@ -68,19 +71,30 @@
 			or global motion can be handled specifically. The clip "restore" is the default 
 			value&nbsp; for "alternative". The default value for gmthreshold is 80, i.e. if 
 			80% of the blocks are motion blocks, then the frame is taken from 
-			"alternative". "mthreshold" is similar&nbsp;as in the old RemoveDirt. However, 
+			"alternative".<br />
+            <br />
+            "mthreshold" is similar&nbsp;as in the old RemoveDirt. However, 
 			because we now use the ordinary SAD for block comparison, the values should be 
 			somewhat higher, especially if the value of noise is low. The default value for 
-			"mthreshold" is 160. With the variable "noise" one can specify a noise level, 
+			"mthreshold" is 160.<br />
+            mthrehold is compared to (restored_blocks + distblocks + motionblocks)
+            <br /><br />
+            With the variable "noise" one can specify a noise level, 
 			which should be ignored by the motion detection. The default value of "noise" 
-			is 0. The variable "noisy" is used to specifiy the number of noisy 
-			pixels&nbsp;of an 8x8 block, which must be exceeded for a motion block. If 
-			noisy &gt;= 0 and noise &gt; 0, then the value of "mthreshold" is ignored. The 
-			variables "pthreshold" and "cthreshold" are the same as in the old RemoveDirt. 
-			Postprocessing is has not been changed in the new RemoveDirt. The default value 
-			for pthreshold is 10 and cthreshold inherits the value of pthreshold by 
-			default. Negative values are allowed for pthreshold and cthreshold, but are not 
-			very reasonable. The variables "dist" and "tolerance" are the same as in the 
+			is 0.
+            <br /><br />
+            The variable "noisy" is used to specifiy the number of noisy 
+			pixels&nbsp;of an 8x8 block, which must be exceeded for a motion block. 
+            <br /><br />
+            If noisy &gt;= 0 and noise &gt; 0, then the value of "mthreshold" is ignored.
+            <br /><br />
+            Parameters "pthreshold" and "cthreshold" are thresholds for luma and chroma, respectively.
+            For 10-16 bits (where actual pixel values and thus SAD values are larger) the 
+            parameter is automatically normalized internally. You can keep it the same across 
+            different formats for the same effect.<br />            
+            For postprocessing the default value for pthreshold is 10 and cthreshold inherits 
+            the value of pthreshold by default.<br />
+            The variables "dist" and "tolerance" are the same as in the 
 			old RemoveDirt plugin if dmode=0, the default. The default value for dist 
 			is&nbsp;1 and the default value for tolerance is 12. If grey=true (false is the 
 			default value), then the chroma is ignored by RestoreMotionBlocks. The boolean 
@@ -88,8 +102,9 @@
 		</p>
 		<H2><FONT size="6">How RestoreMotionBlocks works</FONT></H2>
 		<P>To use the above variables properly, one has to understand how 
-			RestoreMotionBlocks works. It consists of three phases. For the first phase 
-			only the clip "neighbour" is used.&nbsp;Each frame&nbsp;is divided into a grid 
+			RestoreMotionBlocks works. It consists of three phases.
+            <br /><br />For the first phase only the clip "neighbour" is used.&nbsp;Each 
+            frame&nbsp;is divided into a grid 
 			of 8x8 blocks. If&nbsp; n is the number of the current frame, then for each 
 			block of this grid RestoreMotionBlocks&nbsp;looks at&nbsp;the&nbsp;luma of 
 			this&nbsp;block in neighbour(n-1) and neighbour(n+1).&nbsp;Note that we don't 
@@ -97,9 +112,9 @@
 			RemoveDirt has only one). If noise= 0, then simply the SAD of&nbsp;each block 
 			in&nbsp; neighbour(n-1) and neighbour(n+1) is computed. If it is &gt;= 
 			mthreshold, the block is identified as a motion block of frame n. This is the 
-			fasted method and a similar method was used in the old RemoveDirt. Its key 
+			fastest method and a similar method was used in the old RemoveDirt. Its key 
 			disadvantage is that it may easily misled by noise. If noise &gt;=0, then 
-			instead of SUM(|y-x|) RestoerMotionBlocks calculates SUM(| |y-x|-noise |). In 
+			instead of SUM(|y-x|) RestoreMotionBlocks calculates SUM(| |y-x|-noise |). In 
 			particular, differences with absolute value &lt;= noise are ignored. If it is 
 			&gt;= mthreshold, then this block is identified&nbsp;as a motion block. We call 
 			this the noise adjusted SAD. From the way how the noise adjusted SAD is 
@@ -116,7 +131,8 @@
 			the default values. Thus SAD is the default method for the first phase. I ran 
 			most of my RemoveDirt tests with noise=8 or 10&nbsp;and noisy= 12.&nbsp;In the 
 			sequel the motion blocks found in the first phase are called phase 1 motion 
-			blocks.&nbsp; In the second phase, for&nbsp;each block all the motion blocks 
+			blocks. 
+            <br /><br />In the second phase, for&nbsp;each block all the motion blocks 
 			found in the first phase which have a distance &lt;= dist are counted. If the 
 			result&nbsp;is &gt;= (tolerance /100) * (the number of all first phase blocks 
 			with distance &lt;= dist) , then this block is&nbsp;called a <EM>motion neighbour</EM>
@@ -135,7 +151,8 @@
 			the motion neighbour blocks&nbsp;become the phase 2 motion blocks. Thus, if 
 			dmode=1, the phase 1 motion blocks are only relevant for detecting motion 
 			neighbour blocks. After this task is completed the phase 1 information is 
-			discarded. If dist=0 or dmode=2 gmthreshold should be lowered to 60 or even 50. 
+			discarded. If dist=0 or dmode=2 gmthreshold should be lowered to 60 or even 50.
+            <br /><br />            
 			The third phase, called the postprocessing phase,&nbsp;starts 
 			with&nbsp;restoring&nbsp;the phase 2 motion blocks by copying them from the 
 			clip "restore" to the clip "filtered".&nbsp;All phase 2 motion blocks become 
@@ -171,7 +188,8 @@
 			slightly faster than grey=false. If you use grey=false for b&amp;w clips, then 
 			it not only takes longer but also the quality may degrade, because chroma noise 
 			may trigger false postprocessing. Thus "grey=true"&nbsp;is&nbsp;highly 
-			recommended for b&amp;w clips.
+			recommended for b&amp;w clips.<br />
+            Greyscale (Y8..Y16) clips are automatically treated as grey=true.
 		</P>
 		<H2><FONT size="6">Debugging</FONT></H2>
 		<P>The boolean variable <EM>debug</EM> and <EM>show</EM> are used for 
@@ -216,6 +234,9 @@
 			course, show=true can only be used before an encoding process to find the right 
 			values for the various variables.
 		</P>
+		<P>RestoreMotionBlocks registers itself as MT_MULTI_INSTANCE for Avisynth+ Multithreading mode.
+		</P>
+        
 		<H2><FONT size="6">SCSelect</FONT></H2>
 		<P>SCSelect is a special filter, which distinguishes between scene begins, scene 
 			ends and global motion. The output of SCClense is used&nbsp;as 
@@ -241,7 +262,8 @@
 			different sources. Dfactor is the key variable for scene switch sensitivity. 
 			The higher dfactor the less scene begins and scene ends and the more global 
 			motion frames are detected. Dfactor=4.0 is the default value. SCSelect works 
-			with YV12 and planar YUY2. If planar YUY2 is used, then planar=true must be 
+			with 8-32 bit greyscale, 4:2:0, 4:2:2 and 4:4:4 YUV colorspaces, planar RGB 
+            and planar YUY2. If planar YUY2 is used, then planar=true must be 
 			specified. If debug=true, then SCSelect sends output of the following type to 
 			the <A href="http://www.sysinternals.com/ntw2k/freeware/debugview.shtml" target="_blank">
 				debugview</A> &nbsp;utility:
@@ -296,11 +318,13 @@
 			global motion. Then a sharp scene switch can only be detected reliably with a 
 			good motion analysis, which would result in an extreme slow down of the filter.
 		</P>
+		<P>SCSelect registers itself as MT_SERIALIZED for Avisynth+ Multithreading mode.
+		</P>
 		<H2>&nbsp;<FONT size="6">RemoveDirt</FONT>&nbsp;</H2>
 		<P>RemoveDirt has now become an AVS script function, which involves 
-			RestoreMotionBlocks and various filters from&nbsp;my <A href="http://www.RemoveGrain.de.tf">
-				RemoveGrain</A>&nbsp;package (version 0.9 or higher is necessary). During 
-			the tests I used the following script:</P>
+		   RestoreMotionBlocks and various filters from RemoveGrain package 
+           (version 0.95 or higher is recommended).<br /><br />
+           During the tests I used the following script:</P>
 		<TABLE id="Table1" bgColor="#99ffff" border="1">
 			<TR>
 				<TD><PRE>function RemoveDirt(clip input, bool "_grey", int "repmode") 
@@ -351,7 +375,10 @@
             RestoreMotionBlocks uses SSE2 instructions. If you crop without "align= true" before 
 			RestoreMotionBlocks, then the data on the frames may not be properly aligned 
 			and RemoveDirt will execute substantially slower. As a consequence you should 
-            always crop with Avisynth and not&nbsp;with DVD2AVI or DGIndex.</P>
+            always crop with Avisynth and not&nbsp;with DVD2AVI or DGIndex.<br />
+            For Avisynth+ there is no need for such precautions, Crop is always producing 
+            aligned frames.
+            </P>
 		<P>3. <STRONG>Telecined movies must be inverse telecined before RemoveDirt</STRONG>. 
 			If a film is telecined some fields are doubled in order to increase the frame 
 			rate from 24fps to 30fps. Hence on such doubled fields the basic property of 
