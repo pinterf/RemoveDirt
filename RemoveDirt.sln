@@ -9,6 +9,8 @@ Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
 		Debug|x86 = Debug|x86
+		Release LLVM|x64 = Release LLVM|x64
+		Release LLVM|x86 = Release LLVM|x86
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
 	EndGlobalSection
@@ -17,6 +19,10 @@ Global
 		{588984EE-FDBE-4901-894A-32781B765F07}.Debug|x64.Build.0 = Debug|x64
 		{588984EE-FDBE-4901-894A-32781B765F07}.Debug|x86.ActiveCfg = Debug|Win32
 		{588984EE-FDBE-4901-894A-32781B765F07}.Debug|x86.Build.0 = Debug|Win32
+		{588984EE-FDBE-4901-894A-32781B765F07}.Release LLVM|x64.ActiveCfg = Release LLVM|x64
+		{588984EE-FDBE-4901-894A-32781B765F07}.Release LLVM|x64.Build.0 = Release LLVM|x64
+		{588984EE-FDBE-4901-894A-32781B765F07}.Release LLVM|x86.ActiveCfg = Release LLVM|Win32
+		{588984EE-FDBE-4901-894A-32781B765F07}.Release LLVM|x86.Build.0 = Release LLVM|Win32
 		{588984EE-FDBE-4901-894A-32781B765F07}.Release|x64.ActiveCfg = Release|x64
 		{588984EE-FDBE-4901-894A-32781B765F07}.Release|x64.Build.0 = Release|x64
 		{588984EE-FDBE-4901-894A-32781B765F07}.Release|x86.ActiveCfg = Release|Win32
