@@ -1,4 +1,4 @@
-#define LOGO "RemoveDirt 0.9.1\n"
+#define LOGO "RemoveDirt 0.9.2\n"
 // Avisynth filter for removing dirt from film clips
 //
 // By Rainer Wittmann <gorw@gmx.de>
@@ -760,11 +760,8 @@ template<typename pixel_t, int blksizeX>
 uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
 {
   assert(blksizeX == 4 || blksizeX == 8);
-  if constexpr(blksizeX == 4)
-    return Sad_C<4, 1, pixel_t>(u, pitch, u + pitch, pitch) + Sad_C<4, 1, pixel_t>(v, pitch, v + pitch, pitch);
-  else
-    // 4:4:4: average to have the same magnitude as for YV12 and YV16
-    return (Sad_C<8, 1, pixel_t>(u, pitch, u + pitch, pitch) + Sad_C<8, 1, pixel_t>(v, pitch, v + pitch, pitch) + 1) >> 1;
+  return Sad_C<blksizeX, 1, pixel_t>(u, pitch, u + pitch, pitch) + Sad_C<4, 1, pixel_t>(v, pitch, v + pitch, pitch);
+  // as of v0.9.2 no internal downscaling occurs for YV24 (for having the subsampled YV12 or YV16 result), cthreshold_h is scaled instead
 }
 
 template<typename pixel_t, int blksizeX>
@@ -787,8 +784,9 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
       auto src1_v = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(v));
       auto src2_u = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(u + pitch));
       auto src2_v = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(v + pitch));
-      uint32_t sum = _mm_cvtsi128_si32(_mm_sad_epu8(src1_u, src2_u)) + _mm_cvtsi128_si32(_mm_sad_epu8(src1_v, src2_v));
-      return (sum + 1) >> 1; // 4:4:4: average to have the same magnitude as for YV12 and YV16
+      return _mm_cvtsi128_si32(_mm_sad_epu8(src1_u, src2_u)) + _mm_cvtsi128_si32(_mm_sad_epu8(src1_v, src2_v));
+      //return (sum + 1) >> 1; // 4:4:4: average to have the same magnitude as for YV12 and YV16
+      // as of v0.9.2 no internal downscaling occurs for YV24 (for having the subsampled YV12 or YV16 result), cthreshold_h is scaled instead
     }
   }
   else {
@@ -859,7 +857,9 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
       auto sum_hi = _mm_unpackhi_epi64(sum, zero);
       // or: __m128i sum_hi = _mm_castps_si128(_mm_movehl_ps(_mm_setzero_ps(), _mm_castsi128_ps(sum)));
       sum = _mm_add_epi32(sum, sum_hi);
-      return (_mm_cvtsi128_si32(sum) + 1) >> 1; // 4:4:4: average to have the same magnitude as for YV12 and YV16
+      return _mm_cvtsi128_si32(sum);
+      //return (_mm_cvtsi128_si32(sum) + 1) >> 1; // 4:4:4: average to have the same magnitude as for YV12 and YV16
+      // as of v0.9.2 no internal downscaling occurs for YV24 (for having the subsampled YV12 or YV16 result), cthreshold_h is scaled instead
     }
   }
 }
@@ -1008,7 +1008,7 @@ uint32_t vertical_diff_chroma_core_simd(const uint8_t *u, const uint8_t *v, int 
       auto tmp1 = _mm_or_si128(tmp1_even, tmp1_odd);  // V3A1 V2A1 V1A1 V0A1 U3A1 U2A1 U1A1 U0A1
 
       auto absdiff2 = _mm_sad_epu8(tmp0, tmp1);
-      absdiff = _mm_avg_epu16(absdiff, absdiff2); // 16 bit enough, normalize result to YV12 case
+      absdiff = _mm_add_epi32(absdiff, absdiff2);
     }
 
     return _mm_cvtsi128_si32(absdiff);
@@ -1074,9 +1074,6 @@ uint32_t vertical_diff_chroma_core_simd(const uint8_t *u, const uint8_t *v, int 
 
     int sumtot32 = _mm_cvtsi128_si32(sumtot);
 
-    if (vblocks == 2) {
-      sumtot32 = (sumtot32 + 1) >> 1; // same weight as for blksizeY = 4
-    }
     return sumtot32;
   }
 }
@@ -1121,8 +1118,7 @@ uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int p
   pitch /= sizeof(pixel_t);
 
   int res = 0;
-  const int blocksizeY = 4;
-  for (int y = 0; y < blocksizeY; y++)
+  for (int y = 0; y < blksizeY; y++)
   {
     int diff = std::abs(u[0] - u[1]);
     res += diff;
@@ -1131,19 +1127,7 @@ uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int p
     u += pitch;
     v += pitch;
   }
-  if constexpr (blksizeY == 8) {
-    for (int y = 0; y < blocksizeY; y++)
-    {
-      // no vertical subsampling e.g. planar YUY2, YV16, YV24
-      int diff = std::abs(u[0] - u[1]);
-      res += diff;
-      diff = std::abs(v[0] - v[1]);
-      res += diff;
-      u += pitch;
-      v += pitch;
-    }
-    res = (res + 1) / 2; // normalize result to of YV12 blksizeY == 4
-  }
+  // as of v0.9.2 no internal downscaling occurs for YV16/YV24 (for having the subsampled YV12 result), cthreshold_v is scaled instead
   /*
   // old code, unoptimizable by VS
   int   i = 4;
@@ -1223,7 +1207,8 @@ class   Postprocessing
 {
   int   linewidthUV;
   int   pthreshold; // filter parameter corrected with bit depth factor
-  int   cthreshold; // filter parameter corrected with bit depth factor
+  int   cthreshold_h; // filter parameter corrected with bit depth factor for horizontal_diff
+  int   cthreshold_v; // filter parameter corrected with bit depth factor for vertical_diff
 
   uint32_t(*vertical_diff)(const uint8_t *p, int32_t pitch);
   uint32_t(*vertical_diff_C)(const uint8_t *p, int32_t pitch);
@@ -1398,7 +1383,7 @@ public:
                 debug_printf("vertical_diff_chroma incorrect\n");
 #endif
               if ((vertical_diff(dp2 + leftdp * pixelsize, dpitch) > vertical_diff(sp2 + leftsp * pixelsize, spitch) + pthreshold)
-                || (vertical_diff_chroma(dpU2 + Cleftdp * pixelsize, dpV2 + Cleftdp * pixelsize, dpitchUV) > vertical_diff_chroma(spU2 + Cleftsp * pixelsize, spV2 + Cleftsp * pixelsize, spitchUV) + cthreshold))
+                || (vertical_diff_chroma(dpU2 + Cleftdp * pixelsize, dpV2 + Cleftdp * pixelsize, dpitchUV) > vertical_diff_chroma(spU2 + Cleftsp * pixelsize, spV2 + Cleftsp * pixelsize, spitchUV) + cthreshold_v))
               {
                 ++to_restore;
                 cl[-1] = MOTION_FLAG3;
@@ -1407,7 +1392,7 @@ public:
             if (cl[1] == 0)
             {
               if ((vertical_diff(dp2 + rightdp * pixelsize, dpitch) > vertical_diff(sp2 + rightsp * pixelsize, spitch) + pthreshold)
-                || (vertical_diff_chroma(dpU2 + Crightdp * pixelsize, dpV2 + Crightdp * pixelsize, dpitchUV) > vertical_diff_chroma(spU2 + Crightsp * pixelsize, spV2 + Crightsp * pixelsize, spitchUV) + cthreshold))
+                || (vertical_diff_chroma(dpU2 + Crightdp * pixelsize, dpV2 + Crightdp * pixelsize, dpitchUV) > vertical_diff_chroma(spU2 + Crightsp * pixelsize, spV2 + Crightsp * pixelsize, spitchUV) + cthreshold_v))
               {
                 ++to_restore;
                 cl[1] = MOTION_FLAG3;
@@ -1416,7 +1401,7 @@ public:
             if (cl[pline] == 0)
             {
               if ((horizontal_diff(dp2 + topdp, dpitch) > horizontal_diff(sp2 + topsp, spitch) + pthreshold)
-                || (horizontal_diff_chroma(dpU2 + Ctopdp, dpV2 + Ctopdp, dpitchUV) > horizontal_diff_chroma(spU2 + Ctopsp, spV2 + Ctopsp, spitchUV) + cthreshold))
+                || (horizontal_diff_chroma(dpU2 + Ctopdp, dpV2 + Ctopdp, dpitchUV) > horizontal_diff_chroma(spU2 + Ctopsp, spV2 + Ctopsp, spitchUV) + cthreshold_h))
               {
                 ++to_restore;
                 cl[pline] = MOTION_FLAG3;
@@ -1425,7 +1410,7 @@ public:
             if (cl[nline] == 0)
             {
               if ((horizontal_diff(dp2 + bottomdp, dpitch) > horizontal_diff(sp2 + bottomsp, spitch) + pthreshold)
-                || (horizontal_diff_chroma(dpU2 + Cbottomdp, dpV2 + Cbottomdp, dpitchUV) > horizontal_diff_chroma(spU2 + Cbottomsp, spV2 + Cbottomsp, spitchUV) + cthreshold))
+                || (horizontal_diff_chroma(dpU2 + Cbottomdp, dpV2 + Cbottomdp, dpitchUV) > horizontal_diff_chroma(spU2 + Cbottomsp, spV2 + Cbottomsp, spitchUV) + cthreshold_h))
               {
                 ++to_restore;
                 cl[nline] = MOTION_FLAG3;
@@ -1525,7 +1510,8 @@ public:
       env)
     , 
     pthreshold(_pthreshold << (_bits_per_pixel - 8)), 
-    cthreshold(_cthreshold << (_bits_per_pixel - 8))
+    cthreshold_h((_cthreshold << (_bits_per_pixel - 8)) * 2 / _xRatioUV),
+    cthreshold_v((_cthreshold << (_bits_per_pixel - 8)) * 2 / _yRatioUV)
   {
     const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
 
