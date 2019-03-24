@@ -902,21 +902,21 @@ static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
     __m128i xmm1 = _mm_undefined_si128();
     // using 8x2 bytes
     xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 0 * pitch)), 0);
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 0 * pitch + 2)), 0);
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 2 * pitch)), 1); // L2A1 L2A0 L0A1 L0A0
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 2 * pitch + 2)), 1); // L2A1 L2A0 L0A1 L0A0
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 0 * pitch + 2)), 1);
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 2 * pitch)), 2); // L2A1 L2A0 L0A1 L0A0
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 2 * pitch + 2)), 3); // L2A1 L2A0 L0A1 L0A0
     xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 1 * pitch)), 0);
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 1 * pitch + 2)), 0);
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 3 * pitch)), 1); // L3A1 L3A0 L1A1 L1A0
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 3 * pitch + 2)), 1); // L3A1 L3A0 L1A1 L1A0
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 4 * pitch)), 2);
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 4 * pitch + 2)), 2);
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 6 * pitch)), 3); // L6A1 L6A0 L4A1 L4A0 L2A1 L2A0 L0A1 L0A0
-    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 6 * pitch + 2)), 3); // L6A1 L6A0 L4A1 L4A0 L2A1 L2A0 L0A1 L0A0
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 5 * pitch)), 2);
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 5 * pitch + 2)), 2);
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 7 * pitch)), 3); // L7A1 L7A0 L5A1 L5A0 L3A1 L3A0 L1A1 L1A0
-    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 7 * pitch + 2)), 3); // L7A1 L7A0 L5A1 L5A0 L3A1 L3A0 L1A1 L1A0
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 1 * pitch + 2)), 1);
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 3 * pitch)), 2); // L3A1 L3A0 L1A1 L1A0
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 3 * pitch + 2)), 3); // L3A1 L3A0 L1A1 L1A0
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 4 * pitch)), 4);
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 4 * pitch + 2)), 5);
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 6 * pitch)), 6); // L6A1 L6A0 L4A1 L4A0 L2A1 L2A0 L0A1 L0A0
+    xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(p + 6 * pitch + 2)), 7); // L6A1 L6A0 L4A1 L4A0 L2A1 L2A0 L0A1 L0A0
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 5 * pitch)), 4);
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 5 * pitch + 2)), 5);
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 7 * pitch)), 6); // L7A1 L7A0 L5A1 L5A0 L3A1 L3A0 L1A1 L1A0
+    xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(p + 7 * pitch + 2)), 7); // L7A1 L7A0 L5A1 L5A0 L3A1 L3A0 L1A1 L1A0
 
     __m128i mask = _mm_undefined_si128();
     mask = _mm_cmpeq_epi8(mask, mask); // set it all FF
@@ -1088,22 +1088,22 @@ uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int 
       // using 2x8 bytes
       // u
       xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 0 * pitch)), 0);
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 0 * pitch + 2)), 0);
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 2 * pitch)), 1); // U2A1 U2A0 U0A1 U0A0
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 2 * pitch + 2)), 1); // U2A1 U2A0 U0A1 U0A0
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 0 * pitch + 2)), 1);
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 2 * pitch)), 2); // U2A1 U2A0 U0A1 U0A0
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 2 * pitch + 2)), 3); // U2A1 U2A0 U0A1 U0A0
       xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 1 * pitch)), 0);
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 1 * pitch + 2)), 0);
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 3 * pitch)), 1); // U3A1 U3A0 U1A1 U1A0
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 3 * pitch + 2)), 1); // U3A1 U3A0 U1A1 U1A0
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 1 * pitch + 2)), 1);
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 3 * pitch)), 2); // U3A1 U3A0 U1A1 U1A0
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(u + 3 * pitch + 2)), 3); // U3A1 U3A0 U1A1 U1A0
       // v
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 0 * pitch)), 2);
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 0 * pitch + 2)), 2);
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 2 * pitch)), 3); // V2A1 V2A0 V0A1 V0A0 U2A1 U2A0 U0A1 U0A0
-      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 2 * pitch + 2)), 3); // V2A1 V2A0 V0A1 V0A0 U2A1 U2A0 U0A1 U0A0
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 1 * pitch)), 2);
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 1 * pitch + 2)), 2);
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 3 * pitch)), 3); // V3A1 V3A0 V1A1 V1A0 U3A1 U3A0 U1A1 U1A0
-      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 3 * pitch + 2)), 3); // V3A1 V3A0 V1A1 V1A0 U3A1 U3A0 U1A1 U1A0
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 0 * pitch)), 4);
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 0 * pitch + 2)), 5);
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 2 * pitch)), 6); // V2A1 V2A0 V0A1 V0A0 U2A1 U2A0 U0A1 U0A0
+      xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(v + 2 * pitch + 2)), 7); // V2A1 V2A0 V0A1 V0A0 U2A1 U2A0 U0A1 U0A0
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 1 * pitch)), 4);
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 1 * pitch + 2)), 5);
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 3 * pitch)), 6); // V3A1 V3A0 V1A1 V1A0 U3A1 U3A0 U1A1 U1A0
+      xmm1 = _mm_insert_epi16(xmm1, *((int16_t*)(v + 3 * pitch + 2)), 7); // V3A1 V3A0 V1A1 V1A0 U3A1 U3A0 U1A1 U1A0
 
       __m128i mask = _mm_undefined_si128();
       mask = _mm_cmpeq_epi8(mask, mask); // set it all FF
