@@ -1,8 +1,12 @@
 # RemoveDirt - pfmod
+A plugin for removing dirt from film clips.
 
-Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces, bugfixes
+Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces, bugfixes.
 
-Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
+Functions in plugin: RestoreMotionBlocks and SCSelect.
+This mod does not support other filters appearing in 1.0beta.
+
+Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
 
 - (20190324 v0.9.2)
   - RestoreMotionBlocks: 10-16 bit support. Relevant threshold and noise parameters are bit depth independent.
@@ -16,7 +20,8 @@ Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DL
     - Install Clang Power Tools & LLVM Compiler Toolchain
       - https://marketplace.visualstudio.com/items?itemName=caphyon.ClangPowerTools
       - https://marketplace.visualstudio.com/items?itemName=LLVMExtensions.llvm-toolchain
-
+  - update html docs
+  - add clang-built DLLs to the released version
 
 - (20190314 v0.9.1)
   - project moved to github: https://github.com/pinterf/RemoveDirt
@@ -36,4 +41,6 @@ Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DL
 
 Links
 =====
-http://avisynth.nl/index.php/RemoveDirt
+Project: https://github.com/pinterf/RemoveDirt
+Forum: https://forum.doom9.org/showthread.php?t=176199
+Additional info: http://avisynth.nl/index.php/RemoveDirt
