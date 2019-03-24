@@ -395,13 +395,13 @@ class   MotionDetection
 protected:
   int   pline, nline;
 public:
+  uint32_t threshold;
   int noise;
   int   motionblocks;
   unsigned char *blockproperties;
   int   linewidth;
   uint32_t (*blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
   int   hblocks, vblocks;
-  uint32_t threshold;
 
   int bits_per_pixel;
 
@@ -1873,9 +1873,9 @@ public:
 class RemoveDirt : public Postprocessing, public AccessFrame
 {
   friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
-  bool  show;
-  int       blocks;
   bool grey;
+  bool show;
+  int       blocks;
 public:
 
   int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
@@ -1957,8 +1957,8 @@ protected:
 
 #endif
   PClip restore;
-  PClip before;
   PClip after;
+  PClip before;
   PClip alternative;
   int       lastframe;
   int       before_offset, after_offset;
@@ -1967,7 +1967,7 @@ protected:
     return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE /*MT_SERIALIZED*/ : 0;
   }
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
   {
     if ((n + before_offset < 0) || (n + after_offset > lastframe)) return alternative->GetFrame(n, env);
     PVideoFrame pf = before->GetFrame(n + before_offset, env);
@@ -2204,9 +2204,10 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
   PClip scene_end;
   PClip global_motion;
   int64_t lastdiff; // 8k image dimensions require int64 even at 8 bits
-  uint32_t lnr;
-  bool debug;
   double dirmult;
+  bool debug;
+  uint32_t lnr;
+
   bool useSSE2;
 
   // lastdiff and lnr variable: not MT friendly
@@ -2214,7 +2215,7 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
     return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
   }
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
   {
     IClip *selected;
     const char *debugmsg;
