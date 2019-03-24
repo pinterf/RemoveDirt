@@ -953,6 +953,9 @@ static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
 
 // SSE4.1: needed only for uint16_t
 #ifdef __clang__
+// LLVM 7.0.1
+// -Wno-gcc-compat needed for C++ compiler swicthes or otherwise: 
+// GCC does not allow '__target__' attribute in this position on a function definition [-Wgcc-compat]
 static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch) __attribute__((__target__("sse4.1")))
 #else
 static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
