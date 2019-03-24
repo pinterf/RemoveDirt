@@ -11,6 +11,12 @@ Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DL
   - SCSelect: add support for planar RGB
   - FIX: SCSelect: make it work properly for large frames (>8MPixel)
   - FIX: SCSelect: Makes use the whole frame: now counts the rightmost non-mod32 pixels as well.
+  - Clang 7.0.1 support (LLVM) with Visual Studio 2017 (15.9.9) (LLVM 8.0.0: not tried yet)
+    - Install LLVM 7.0.1 (http://releases.llvm.org/download.html, Windows pre-built libraries)
+    - Install Clang Power Tools & LLVM Compiler Toolchain
+      - https://marketplace.visualstudio.com/items?itemName=caphyon.ClangPowerTools
+      - https://marketplace.visualstudio.com/items?itemName=LLVMExtensions.llvm-toolchain
+
 
 - (20190314 v0.9.1)
   - project moved to github: https://github.com/pinterf/RemoveDirt
