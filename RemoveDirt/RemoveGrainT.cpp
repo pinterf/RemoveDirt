@@ -1,4 +1,4 @@
-// TemporalRepair from then RemoveGrainT 1.0 package"
+// TemporalRepair from RemoveGrainT 1.0 package"
 //
 // An Avisynth plugin for removing grain from progressive video
 //
@@ -19,11 +19,13 @@
 // Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA, or visit
 // http://www.gnu.org/copyleft/gpl.html .
 
+#include "avisynth.h"
+
+#ifndef X86_64
+
 #include <Windows.h>
 #include <stdio.h>
 #include <stdarg.h>
-
-#include "avisynth.h"
 #include "planar.h"
 #include "common.h"
 #include "RemoveGrainT.h"
@@ -612,3 +614,4 @@ AVSValue __cdecl CreateTemporalRepair(AVSValue args, void* user_data, IScriptEnv
   return spatial[mode] ? (AVSValue) new SmoothTemporalRepair(clip, oclip, mode, grey, planar, env)
     : (AVSValue) new TemporalRepair(clip, oclip, mode, grey, planar, env);
 };
+#endif // x64
