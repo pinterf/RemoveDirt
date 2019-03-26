@@ -35,8 +35,10 @@
     <ClInclude Include="avs\minmax.h" />
     <ClInclude Include="avs\types.h" />
     <ClInclude Include="avs\win.h" />
+    <ClInclude Include="common.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="common.cpp" />
     <ClCompile Include="RemoveDirt.cpp" />
     <ClCompile Include="RemoveGrainT.cpp" />
   </ItemGroup>

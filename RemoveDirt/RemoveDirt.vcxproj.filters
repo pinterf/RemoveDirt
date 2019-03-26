@@ -39,12 +39,18 @@
     <ClInclude Include="avs\win.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="RemoveDirt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RemoveGrainT.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="common.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
