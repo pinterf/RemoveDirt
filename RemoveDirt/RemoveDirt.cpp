@@ -29,7 +29,6 @@
 // Part 1: options at compile time
 //
 
-//#define DEBUG_NAME
 //#define RANGEFILES 
 
 #define FHANDLERS 9
@@ -2323,13 +2322,8 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   /* New 2.6 requirement!!! */
   // Save the server pointers.
   AVS_linkage = vectors;
-#ifdef  DEBUG_NAME
-  env->AddFunction("DSCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
-  env->AddFunction("DRestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
-#else
   env->AddFunction("SCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
   env->AddFunction("RestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
-#endif
   debug_printf(LOGO);
   return NULL;
 }
