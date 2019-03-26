@@ -38,6 +38,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="RemoveDirt.cpp" />
+    <ClCompile Include="RemoveGrainT.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="RemoveDirt.rc" />
