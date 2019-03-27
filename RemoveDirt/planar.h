@@ -48,6 +48,7 @@ public:
   PlanarAccess(const VideoInfo &vi, bool planar = true);
 };
 
+#if 0
 // The two subsequent classes have nothing to do with PlanarAccess, but they provide an analogous
 // service, namely to assure that the frames of the child have always the same pitch.
 // Unfortunately only the original, not neccessary aligned frames are cached by Avisynth
@@ -70,7 +71,6 @@ public:
   HomogeneousChild(PClip _child, bool grey, IScriptEnvironment* env);
 };
 
-
 class HomogeneousVideoFilter : public IClip // Replacement for GenericVideoFilter
 {
   HomogeneousChild child;
@@ -81,6 +81,7 @@ public:
   void __stdcall GetAudio(void* buf, __int64 start, __int64 count, IScriptEnvironment* env) { child->GetAudio(buf, start, count, env); }
   const VideoInfo& __stdcall GetVideoInfo() { return vi; }
   bool __stdcall GetParity(int n) { return child->GetParity(n); }
-  int __stdcall SetCacheHints(int cachehints, int frame_range) { };
+  int __stdcall SetCacheHints(int cachehints, int frame_range) { return 0;  };
 };
+#endif
 #endif // PLANAR_H

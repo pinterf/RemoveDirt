@@ -43,7 +43,7 @@ PlanarAccess::PlanarAccess(const VideoInfo &vi, bool planar)
 
   if (vi.IsYUV() && !vi.IsY())
   {
-    if (!vi.IsYUY2()) {
+    if (vi.IsYUY2()) {
       width[1] = vi.width / 2;
       height[1] = vi.height;
       _GetPitch = &PlanarAccess::YUY2_GetPitch;
@@ -72,6 +72,8 @@ PlanarAccess::PlanarAccess(const VideoInfo &vi, bool planar)
   }
 }
 
+#if 0
+// PF HomogeneousChild hack is a bad idea in 2019 due to Avisynth cacheing mechanisms
 HomogeneousChild::HomogeneousChild(PClip _child, bool grey, IScriptEnvironment* env) : child(_child)
 {
   vi = _child->GetVideoInfo();
@@ -115,3 +117,4 @@ PVideoFrame __stdcall HomogeneousChild::GetFrame(int n, IScriptEnvironment* env)
   } while (--i >= 0);
   return nf;
 }
+#endif

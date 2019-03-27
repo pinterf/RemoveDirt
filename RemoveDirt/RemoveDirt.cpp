@@ -2179,9 +2179,7 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   AVS_linkage = vectors;
   env->AddFunction("SCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
   env->AddFunction("RestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
-#ifndef X86_64
-  env->AddFunction("TemporalRepair", "cc[mode]i[smooth]i[grey]b[planar]b", CreateTemporalRepair, 0);
-#endif
+  env->AddFunction("TemporalRepair", "cc[mode]i[smooth]i[grey]b[planar]b[optOld]i[optSSE2]b", CreateTemporalRepair, 0);
   debug_printf(LOGO);
   return NULL;
 }

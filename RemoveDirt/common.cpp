@@ -22,7 +22,7 @@ void CompareVideoInfo(VideoInfo &vi1, const VideoInfo &vi2, const char *progname
 {
   if ((vi1.width != vi2.width) || (vi1.height != vi2.height) || ((vi1.pixel_type & COMPARE_MASK) != (vi2.pixel_type & COMPARE_MASK)))
   {
-#if 1
+#if 0
     debug_printf("widths = %u, %u, heights = %u, %u, color spaces = %X, %X\n"
       , vi1.width, vi2.width, vi1.height, vi2.height, vi1.pixel_type, vi2.pixel_type);
 #endif
