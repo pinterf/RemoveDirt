@@ -116,6 +116,8 @@ public:
     _GetReadPtrV = &AccessFrame::YV12_GetReadPtrV;
     _GetWritePtrU = &AccessFrame::YV12_GetWritePtrU;
     _GetWritePtrV = &AccessFrame::YV12_GetWritePtrV;
+    uoffset = 0;
+    voffset = 0;
     if (yuy2)
     {
       voffset = (uoffset = width) + width / 2;
