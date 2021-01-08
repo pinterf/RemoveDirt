@@ -8,6 +8,20 @@ This mod does not support other filters appearing in 1.0beta.
 
 Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
 
+- (20210108) TemporalRepair moved to RgTools in 2019, code deleted from here.
+
+- (20190328-0405 v0.9.x)
+      - Add TemporalRepair from RepairT.DLL
+	    - Reports MT mode for Avisynth+: MT_NICE_FILTER
+	    - fix a small bug in mode 3 SSE2
+	    - x64 version, rewrite to SIMD intrinsics
+		- create pure C functions 
+		- Fix mode 1-3 which relied on having the same pitch for multiple different frames
+		- support avs 2.6 8 bit color spaces
+      - Move to LLVM 8.0: http://releases.llvm.org/download.html#8.0.0, pre-built libraries Windows (64-bit)
+        Uninstall old LLVM anyway
+        Install/Add LLVM for System Path
+
 - (20190324 v0.9.2)
   - RestoreMotionBlocks: 10-16 bit support. Relevant threshold and noise parameters are bit depth independent.
   - minor speedup
@@ -19,6 +33,7 @@ Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtS
     - Install LLVM 7.0.1 (http://releases.llvm.org/download.html, Windows pre-built libraries)
     - Install Clang Power Tools & LLVM Compiler Toolchain
       - https://marketplace.visualstudio.com/items?itemName=caphyon.ClangPowerTools
+        https://www.clangpowertools.com/CHANGELOG.html 
       - https://marketplace.visualstudio.com/items?itemName=LLVMExtensions.llvm-toolchain
   - update html docs
   - add clang-built DLLs to the released version
