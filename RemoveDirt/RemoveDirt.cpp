@@ -1821,7 +1821,7 @@ protected:
     PVideoFrame df = child->GetFrame(n, env);
     PVideoFrame rf = restore->GetFrame(n, env);
     PVideoFrame nf = after->GetFrame(n + after_offset, env);
-    env->MakeWritable(&df);
+    env->MakeWritable(&df); // preserves frame properties of v8
     if (SELECT(n)->ProcessFrame(df, rf, pf, nf, n) > MTHRESHOLD(n))
       return alternative->GetFrame(n, env);
     else return df;
