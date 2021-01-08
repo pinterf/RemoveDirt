@@ -18,9 +18,11 @@
 // Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA, or visit
 // http://www.gnu.org/copyleft/gpl.html .
 
+#ifdef INTEL_INTRINSICS
 #include "smmintrin.h" // SSE4.1 even if not defined (clang)
 #include "emmintrin.h"
 #include "immintrin.h"
+#endif
 #include <cstdint>
 #include <cassert>
 #include <cmath>
@@ -241,6 +243,7 @@ uint32_t SADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2,
   return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
 
+#ifdef INTEL_INTRINSICS
 static AVS_FORCEINLINE __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
 {
   return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(x), (double *)p));
@@ -301,7 +304,9 @@ uint32_t NSADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2
   auto count_final = _mm_add_epi32(counts, counts_hi);
   return (uint32_t)_mm_cvtsi128_si32(count_final);
 }
+#endif
 
+#ifdef INTEL_INTRINSICS
 uint32_t ExcessPixels_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
 {
   __m128i noise_vector = _mm_set1_epi8(noise);
@@ -369,7 +374,7 @@ uint32_t ExcessPixels_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch
   auto count_final =  _mm_add_epi32(counts, counts_hi);
   return (uint32_t)_mm_cvtsi128_si32(count_final);
 }
-
+#endif
 /****************************************************
 * SIMD functions end
 ****************************************************/
@@ -441,15 +446,21 @@ public:
     hblocks = width / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
+#ifdef INTEL_INTRINSICS
     const bool use_SSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
 
     // old non-SSE2 check
     if (!use_SSE2 & ((hblocks == 0) || (vblocks == 0)))
         env->ThrowError("RemoveDirt: width or height of the clip too small");
+#endif
 
     if (bits_per_pixel == 8) {
-      blockcompare = use_SSE2 ? SADcompare_simd : SADcompare_C<uint8_t, 8, 8>;
       blockcompare_C = SADcompare_C<uint8_t, 8, 8>;
+#ifdef INTEL_INTRINSICS
+      blockcompare = use_SSE2 ? SADcompare_simd : SADcompare_C<uint8_t, 8, 8>;
+#else
+      blockcompare = blockcompare_C;
+#endif
     }
     else { // 10-16 bits
       // FIXME simd 16, though compiler optimizes well
@@ -461,7 +472,11 @@ public:
     {
       if (bits_per_pixel == 8) {
         blockcompare_C = NSADcompare_C<uint8_t, 8, 8>;
+#ifdef INTEL_INTRINSICS
         blockcompare = use_SSE2 ? NSADcompare_simd : NSADcompare_C<uint8_t, 8, 8>;
+#else
+        blockcompare = blockcompare_C;
+#endif
       }
       else {
         blockcompare_C = NSADcompare_C<uint16_t, 8, 8>;
@@ -474,7 +489,11 @@ public:
         // noisy is counter, not a SAD-like number
         if (bits_per_pixel == 8) {
           blockcompare_C = ExcessPixels_C<uint8_t, 8, 8>;
+#ifdef INTEL_INTRINSICS
           blockcompare = use_SSE2 ? ExcessPixels_simd : ExcessPixels_C<uint8_t, 8, 8>;
+#else
+          blockcompare = blockcompare_C;
+#endif
         }
         else {
           blockcompare_C = ExcessPixels_C<uint16_t, 8, 8>;
@@ -710,6 +729,8 @@ uint32_t horizontal_diff_C(const uint8_t *p, int pitch)
   return Sad_C<8, 1, pixel_t>(p, pitch, p + pitch, pitch);
 }
 
+#ifdef INTEL_INTRINSICS
+
 template<typename pixel_t>
 uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
 {
@@ -744,6 +765,7 @@ uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
     return _mm_cvtsi128_si32(sum);
   }
 }
+#endif
 
 template<typename pixel_t, int blksizeX>
 uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
@@ -753,6 +775,7 @@ uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
   // as of v0.9.2 no internal downscaling occurs for YV24 (for having the subsampled YV12 or YV16 result), cthreshold_h is scaled instead
 }
 
+#ifdef INTEL_INTRINSICS
 template<typename pixel_t, int blksizeX>
 uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pitch)
 {
@@ -852,7 +875,9 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
     }
   }
 }
+#endif
 
+#ifdef INTEL_INTRINSICS
 template<typename pixel_t>
 static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
 {
@@ -1133,7 +1158,9 @@ uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int 
     return sumtot32;
   }
 }
+#endif
 
+#ifdef INTEL_INTRINSICS
 // SSE4.1: needed only for uint16_t
 template<int blksizeY>
 #if defined(GCC) || defined(CLANG)
@@ -1206,6 +1233,7 @@ uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *
 
   return sumtot32;
 }
+#endif
 
 template<typename pixel_t>
 uint32_t vertical_diff_core_C(const uint8_t *p8, int pitch)
@@ -1640,32 +1668,59 @@ public:
     cthreshold_h((_cthreshold << (_bits_per_pixel - 8)) * 2 / _xRatioUV),
     cthreshold_v((_cthreshold << (_bits_per_pixel - 8)) * 2 / _yRatioUV)
   {
+#ifdef INTEL_INTRINSICS
     const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
     const bool useSSE41 = (env->GetCPUFlags() & CPUF_SSE4_1) == CPUF_SSE4_1;
+#endif
 
     if (_bits_per_pixel == 8) {
-      vertical_diff_C = vertical_diff_core_C<uint8_t>;
-      vertical_diff = useSSE2 ? vertical_diff_sse2<uint8_t> : vertical_diff_core_C<uint8_t>;
       copy_luma = copy_luma_C<8, 8, uint8_t>;
 
+      vertical_diff_C = vertical_diff_core_C<uint8_t>;
+#ifdef INTEL_INTRINSICS
+      vertical_diff = useSSE2 ? vertical_diff_sse2<uint8_t> : vertical_diff_core_C<uint8_t>;
+#else
+      vertical_diff = vertical_diff_C;
+#endif
+
+#ifdef INTEL_INTRINSICS
       horizontal_diff = useSSE2 ? horizontal_diff_simd<uint8_t> : horizontal_diff_C<uint8_t>;
+#else
+      horizontal_diff = horizontal_diff_C<uint8_t>;
+#endif
 
       if (_yRatioUV == 1) {
         vertical_diff_chroma_C = vertical_diff_chroma_core_C<uint8_t, 8>;
+#ifdef INTEL_INTRINSICS
         vertical_diff_chroma = useSSE2 ? vertical_diff_chroma_core_sse2<uint8_t, 8> : vertical_diff_chroma_core_C<uint8_t, 8>;
+#else
+        vertical_diff_chroma = vertical_diff_chroma_C;
+#endif
       }
       else { // 2
         vertical_diff_chroma_C = vertical_diff_chroma_core_C<uint8_t, 4>;
+#ifdef INTEL_INTRINSICS
         vertical_diff_chroma = useSSE2 ? vertical_diff_chroma_core_sse2<uint8_t, 4> : vertical_diff_chroma_core_C<uint8_t, 4>;
+#else
+        vertical_diff_chroma = vertical_diff_chroma_C;
+#endif
       }
 
       postprocessing_grey = &Postprocessing::postprocessing_grey_core<uint8_t>;
       if (_xRatioUV == 1) {// YV24
+#ifdef INTEL_INTRINSICS
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint8_t, 8> : horizontal_diff_chroma_C<uint8_t, 8>;
+#else
+        horizontal_diff_chroma = horizontal_diff_chroma_C<uint8_t, 8>;
+#endif
       }
       else {
+#ifdef INTEL_INTRINSICS
         // YV16, YV12
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint8_t, 4> : horizontal_diff_chroma_C<uint8_t, 4>;
+#else
+        horizontal_diff_chroma = horizontal_diff_chroma_C<uint8_t, 4>;
+#endif
       }
 
       if (_xRatioUV == 1 && _yRatioUV == 1) { // 4:4:4 YV24
@@ -1688,26 +1743,50 @@ public:
     else {
       // 10-16 bits
       vertical_diff_C = vertical_diff_core_C<uint16_t>;
+#ifdef INTEL_INTRINSICS
       vertical_diff = useSSE41 ? vertical_diff_uint16_sse4 : useSSE2 ? vertical_diff_sse2<uint16_t> : vertical_diff_core_C<uint16_t>;
+#else
+      vertical_diff = vertical_diff_C;
+#endif
       copy_luma = copy_luma_C<8, 8, uint16_t>;
-      
+
+#ifdef INTEL_INTRINSICS
       horizontal_diff = useSSE2 ? horizontal_diff_simd<uint16_t> : horizontal_diff_C<uint16_t>;
+#else
+      horizontal_diff = horizontal_diff_C<uint16_t>;
+#endif
 
       if (_yRatioUV == 1) {
         vertical_diff_chroma_C = vertical_diff_chroma_core_C<uint16_t, 8>;
+#ifdef INTEL_INTRINSICS
         vertical_diff_chroma = useSSE41 ? vertical_diff_chroma_core_uint16_sse4<8> : useSSE2 ? vertical_diff_chroma_core_sse2<uint16_t, 8> : vertical_diff_chroma_core_C<uint16_t, 8>;
+#else
+        vertical_diff_chroma = vertical_diff_chroma_C;
+#endif
       }
-      else { // 2
+      else { // 2 YV16 Yv12
         vertical_diff_chroma_C = vertical_diff_chroma_core_C<uint16_t, 4>;
+#ifdef INTEL_INTRINSICS
         vertical_diff_chroma = useSSE41 ? vertical_diff_chroma_core_uint16_sse4<4> : useSSE2 ? vertical_diff_chroma_core_sse2<uint16_t, 4> : vertical_diff_chroma_core_C<uint16_t, 4>;
+#else
+        vertical_diff_chroma = vertical_diff_chroma_C;
+#endif
       }
 
       postprocessing_grey = &Postprocessing::postprocessing_grey_core<uint16_t>;
       if (_xRatioUV == 1) { // YV24
+#ifdef INTEL_INTRINSICS
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint16_t, 8> : horizontal_diff_chroma_C<uint16_t, 8>;
+#else
+        horizontal_diff_chroma = horizontal_diff_chroma_C<uint16_t, 8>;
+#endif
       }
       else {// YV16, YV12
+#ifdef INTEL_INTRINSICS
         horizontal_diff_chroma = useSSE2 ? horizontal_diff_chroma_simd<uint16_t, 4> : horizontal_diff_chroma_C<uint16_t, 4>;
+#else
+        horizontal_diff_chroma = horizontal_diff_chroma_C<uint16_t, 4>;
+#endif
       }
 
       if (_xRatioUV == 1 && _yRatioUV == 1) { // 4:4:4 YV24
@@ -1966,6 +2045,7 @@ static int64_t calculate_sad_c(const BYTE* cur_ptr, int cur_pitch, const BYTE* o
     return (int64_t)sum; // for int, scaling to 8 bit range is done outside
 }
 
+#ifdef INTEL_INTRINSICS
 // works for uint8_t, but there is a specific, bit faster function above
 template<typename pixel_t>
 int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYTE* other_ptr, int other_pitch, int32_t width, int32_t height)
@@ -2024,19 +2104,24 @@ int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYT
   }
   return totalsum;
 }
+#endif
 
 // SCSelect helper
 static int64_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int width, int height, int bits_per_pixel,bool useSSE2)
 {
   if (bits_per_pixel == 8)
+#ifdef INTEL_INTRINSICS
     if(useSSE2)
       return calculate_sad_8_or_16_sse2<uint8_t>(sp1, spitch1, sp2, spitch2, width, height);
     else
+#endif
       return calculate_sad_c<uint8_t>(sp1, spitch1, sp2, spitch2, width, height);
   else if(bits_per_pixel <= 16)
+#ifdef INTEL_INTRINSICS
     if (useSSE2)
       return calculate_sad_8_or_16_sse2<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
     else
+#endif
       return calculate_sad_c<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
   else {
     return calculate_sad_c<float>(sp1, spitch1, sp2, spitch2, width, height);
