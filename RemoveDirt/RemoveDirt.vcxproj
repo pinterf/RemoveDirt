@@ -37,13 +37,11 @@
     <ClInclude Include="avs\win.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="planar.h" />
-    <ClInclude Include="RemoveGrainT.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="common.cpp" />
     <ClCompile Include="planar.cpp" />
     <ClCompile Include="RemoveDirt.cpp" />
-    <ClCompile Include="RemoveGrainT.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="RemoveDirt.rc" />
@@ -53,6 +51,7 @@
     <ProjectGuid>{588984EE-FDBE-4901-894A-32781B765F07}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>RemoveDirt</RootNamespace>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -225,7 +224,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <AdditionalOptions>-Wno-gcc-compat %(AdditionalOptions)</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
-      <UseUnicodeForAssemblerListing>true</UseUnicodeForAssemblerListing>
+      <UseUnicodeForAssemblerListing>false</UseUnicodeForAssemblerListing>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
