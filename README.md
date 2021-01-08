@@ -4,11 +4,14 @@ A plugin for removing dirt from film clips.
 Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces, bugfixes.
 
 Functions in plugin: RestoreMotionBlocks and SCSelect.
-This mod does not support other filters appearing in 1.0beta.
+For Linux build instructions see bottom of readme.
 
 Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
 
-- (20210108) TemporalRepair moved to RgTools in 2019, code deleted from here.
+- (20210108 WIP)
+  TemporalRepair moved to RgTools in 2019, code deleted from here.
+  Linux/GCC port
+  CMake build system
 
 - (20190328-0405 v0.9.x)
       - Add TemporalRepair from RepairT.DLL
@@ -50,9 +53,30 @@ Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtS
   - Reports MT Modes for Avisynth+: MT_SERIALIZED for SCSelect
   - Reports MT Modes for Avisynth+: MT_MULTI_INSTANCE for RestoreMotionBlocks (may not be any faster)
   - Added Y, YV16 and YV24 support besides existing YV12 and planar-hacked-YUY2
+  - Note: This mod does not support other filters appearing in 1.0beta.
 
 - (20190312)
   Initial source v0.9 (2005/05/07) moved to VS2017 project 
+
+Build instructions
+==================
+VS2019: 
+  use IDE
+
+Windows GCC (mingw installed by msys2):
+  from the 'build' folder under project root:
+
+  del ..\CMakeCache.txt
+  cmake .. -G "MinGW Makefiles" -DENABLE_INTEL_SIMD:bool=on
+  cmake --build . --config Release  
+
+Linux
+  from the 'build' folder under project root:
+  
+  rm CMakeCache.txt
+  cmake .. -DENABLE_INTEL_SIMD:bool=on
+  cmake --build . --config Release    
+  sudo make install
 
 Links
 =====
