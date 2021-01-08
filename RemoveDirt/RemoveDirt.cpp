@@ -84,7 +84,6 @@
 #include <stdio.h>
 #include "avisynth.h"
 #include "common.h"
-#include "RemoveGrainT.h"
 
 //
 // Part 3: auxiliary functions
