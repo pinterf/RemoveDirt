@@ -1,5 +1,3 @@
-#define VC_EXTRALEAN 
-#include <Windows.h>
 #include "avisynth.h"
 #include "planar.h"
 

@@ -74,15 +74,14 @@
 // Part 2: include files and basic definitions
 //
 
+#include "avisynth.h"
+
+#ifdef _WIN32
 #define VC_EXTRALEAN
 #include <Windows.h>
+#endif
 #include <stdlib.h>
-#include <io.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <stdarg.h>
 #include <stdio.h>
-#include "avisynth.h"
 #include "common.h"
 
 //
@@ -97,10 +96,10 @@
 * C functions
 ****************************************************/
 
-__forceinline unsigned int SADABS(int x) { return (x < 0) ? -x : x; }
+AVS_FORCEINLINE unsigned int SADABS(int x) { return (x < 0) ? -x : x; }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-static __forceinline uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
+static AVS_FORCEINLINE uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
 {
   uint32_t sum = 0;
   for (int y = 0; y < nBlkHeight; y++)
@@ -242,7 +241,7 @@ uint32_t SADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2,
   return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
 
-static __forceinline __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
+static AVS_FORCEINLINE __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
 {
   return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(x), (double *)p));
 }
@@ -942,14 +941,10 @@ static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
 }
 
 // SSE4.1: needed only for uint16_t
-#ifdef __clang__
-// LLVM 7.0.1
-// -Wno-gcc-compat needed for C++ compiler swicthes or otherwise: 
-// GCC does not allow '__target__' attribute in this position on a function definition [-Wgcc-compat]
-static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch) __attribute__((__target__("sse4.1")))
-#else
-static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
 #endif
+static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
 {
   // 10-16 bits, pixel_t is uint16_t
   __m128i xmm0 = _mm_undefined_si128();
@@ -1141,11 +1136,10 @@ uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int 
 
 // SSE4.1: needed only for uint16_t
 template<int blksizeY>
-#ifdef __clang__
-uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *v, int pitch) __attribute__((__target__("sse4.1")))
-#else
-uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *v, int pitch)
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
 #endif
+uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *v, int pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -1300,7 +1294,7 @@ uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int p
 }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-__forceinline void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int nSrcPitch)
+AVS_FORCEINLINE void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int nSrcPitch)
 {
   for (int j = 0; j < nBlkHeight; j++)
   {
@@ -1311,7 +1305,7 @@ __forceinline void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int
 }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-__forceinline void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int spitch)
+AVS_FORCEINLINE void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int spitch)
 {
   Copy_C<8, 8, pixel_t>(dest, dpitch, src, spitch);
 }
@@ -1952,7 +1946,7 @@ static int64_t calculate_sad_c(const BYTE* cur_ptr, int cur_pitch, const BYTE* o
   other_pitch /= sizeof(pixel_t);
 
   // for fullframe float may lose precision
-  typedef typename std::conditional < std::is_floating_point<pixel_t>::value, double, __int64>::type sum_t;
+  typedef typename std::conditional < std::is_floating_point<pixel_t>::value, double, int64_t>::type sum_t;
   // for one row int is enough and faster than int64
   typedef typename std::conditional < std::is_floating_point<pixel_t>::value, float, int>::type sumrow_t;
   sum_t sum = 0;
@@ -2178,7 +2172,7 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   AVS_linkage = vectors;
   env->AddFunction("SCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
   env->AddFunction("RestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
-  debug_printf(LOGO);
+  //debug_printf(LOGO);
   return NULL;
 }
 #endif  // RANGEFILES

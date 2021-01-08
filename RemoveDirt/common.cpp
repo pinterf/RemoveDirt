@@ -1,7 +1,11 @@
 #include "common.h"
 
 #include "avisynth.h"
+#ifdef _WIN32
 #include <Windows.h>
+#else
+#include <cstdio>
+#endif
 #include <stdint.h>
 #include <stdio.h>
 
@@ -10,9 +14,17 @@ void debug_printf(const char *format, ...)
   char buffer[200];
   va_list   args;
   va_start(args, format);
+#ifdef _WIN32
   vsprintf_s(buffer, format, args);
+#else
+  vsprintf(buffer, format, args);
+#endif
   va_end(args);
+#ifdef _WIN32
   OutputDebugString(buffer);
+#else
+  fprintf(stderr, buffer);
+#endif
 }
 
 
