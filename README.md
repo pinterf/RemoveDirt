@@ -11,7 +11,7 @@ Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtS
 - (20210108 WIP)
   TemporalRepair moved to RgTools in 2019, code deleted from here.
   Linux/GCC port
-  CMake build system
+  CMake build system, automatic C-only version for non-intel 
 
 - (20190328-0405 v0.9.x)
       - Add TemporalRepair from RepairT.DLL
@@ -68,15 +68,20 @@ Windows GCC (mingw installed by msys2):
 
   del ..\CMakeCache.txt
   cmake .. -G "MinGW Makefiles" -DENABLE_INTEL_SIMD:bool=on
+  @rem test: cmake .. -G "MinGW Makefiles" -DENABLE_INTEL_SIMD:bool=off
   cmake --build . --config Release  
 
 Linux
   from the 'build' folder under project root:
+  ENABLE_INTEL_SIMD is automatically off for non x86 arhitectures
   
   rm CMakeCache.txt
-  cmake .. -DENABLE_INTEL_SIMD:bool=on
+  cmake ..
   cmake --build . --config Release    
   sudo make install
+
+  test for C only on x86 arhitectures:
+  cmake .. -DENABLE_INTEL_SIMD:bool=off
 
 Links
 =====
