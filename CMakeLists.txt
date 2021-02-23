@@ -204,6 +204,12 @@ ELSE()
   ENDIF()
 ENDIF()
 
+IF(ENABLE_INTEL_SIMD)
+  message("Intel SIMD enabled")
+ELSE()
+  message("Intel SIMD disabled")
+ENDIF()
+
 add_subdirectory("RemoveDirt")
 
 # uninstall target

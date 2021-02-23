@@ -24,8 +24,10 @@ if (MINGW)
   set_target_properties(${PluginName} PROPERTIES IMPORT_PREFIX "")
 endif()
 
+IF(ENABLE_INTEL_SIMD)
 #require sse2, some other plugins may need to set sse4.1 for quick msvc->gcc porting
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DINTEL_INTRINSICS -msse2")
+ENDIF()
 
 # Automatically group source files according to directory structure
 foreach(FILE ${RemoveDirt_Sources}) 
