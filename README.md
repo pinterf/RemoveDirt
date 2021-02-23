@@ -8,6 +8,9 @@ For Linux build instructions see bottom of readme.
 
 Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
 
+- (20210223 v0.9.3)
+  - Fix a crash, which can occur on non mod8 sources
+
 - (20210108)
   - No functional change since v0.9.2
   - Linux/GCC port
@@ -76,13 +79,31 @@ Linux
   from the 'build' folder under project root:
   ENABLE_INTEL_SIMD is automatically off for non x86 arhitectures
   
-  rm CMakeCache.txt
-  cmake ..
-  cmake --build . --config Release    
-  sudo make install
+* Clone repo and build
+    
+        git clone https://github.com/pinterf/RemoveDirt
+        cd RemoveDirt
+        cmake -B build -S .
+        cmake --build build
 
-  test for C only on x86 arhitectures:
-  cmake .. -DENABLE_INTEL_SIMD:bool=off
+  Useful hints:        
+   build after clean:
+        cmake --build build --clean-first
+
+   Force no asm support
+        cmake -B build -S . -DENABLE_INTEL_SIMD:bool=off
+   delete cmake cache
+        rm build/CMakeCache.txt
+
+* Find binaries at
+    
+        build/RemoveDirt/libremovedirt.so
+
+* Install binaries
+
+        cd build
+        sudo make install
+
 
 Links
 =====
