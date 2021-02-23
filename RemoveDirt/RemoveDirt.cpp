@@ -742,8 +742,8 @@ uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
   }
   else {
     // 10-16 bits
-    auto src1 = _mm_load_si128(reinterpret_cast<const __m128i *>(p));
-    auto src2 = _mm_load_si128(reinterpret_cast<const __m128i *>(p + pitch));
+    auto src1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(p));
+    auto src2 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(p + pitch));
 
     // SAD16 of two full vectors
     __m128i greater_t = _mm_subs_epu16(src1, src2); // unsigned sub with saturation
@@ -833,8 +833,8 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
     else {
       // 8 pixels 4:4:4
       // u
-      auto src1_u = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
-      auto src2_u = _mm_load_si128(reinterpret_cast<const __m128i *>(u + pitch));
+      auto src1_u = _mm_loadu_si128(reinterpret_cast<const __m128i *>(u));
+      auto src2_u = _mm_loadu_si128(reinterpret_cast<const __m128i *>(u + pitch));
 
       // make 16bit SAD
       __m128i greater_t = _mm_subs_epu16(src1_u, src2_u); // unsigned sub with saturation
@@ -847,8 +847,8 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
       // sum0_32, sum1_32, sum2_32, sum3_32
 
       // v
-      auto src1_v = _mm_load_si128(reinterpret_cast<const __m128i *>(v));
-      auto src2_v = _mm_load_si128(reinterpret_cast<const __m128i *>(v + pitch));
+      auto src1_v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(v));
+      auto src2_v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(v + pitch));
 
       // make 16bit SAD
       greater_t = _mm_subs_epu16(src1_v, src2_v); // unsigned sub with saturation
