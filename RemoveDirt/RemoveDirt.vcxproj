@@ -40,7 +40,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="common.cpp" />
-    <ClCompile Include="planar.cpp" />
     <ClCompile Include="RemoveDirt.cpp" />
   </ItemGroup>
   <ItemGroup>

@@ -943,8 +943,8 @@ static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
   return _mm_cvtsi128_si32(sum);
 }
 
-// vertical_diff_yv12_chroma: vertical_diff_chroma<4>
-// vertical_diff_yuy2_chroma: vertical_diff_chroma<8>
+// YUV420: vertical_diff_chroma<4>
+// others: vertical_diff_chroma<8>
 template<typename pixel_t, int blksizeY>
 uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int pitch)
 {
@@ -983,7 +983,7 @@ uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int 
       // next 4 lines
       u += 4 * pitch;
       v += 4 * pitch;
-      // no vertical subsampling: planar YUY2, YU16, YV24
+      // no vertical subsampling: planar 422, 444
       // u
       xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 0 * pitch)), 0);
       xmm0 = _mm_insert_epi16(xmm0, *((int16_t*)(u + 2 * pitch)), 1); // U2A1 U2A0 U0A1 U0A0
@@ -1178,8 +1178,8 @@ uint32_t vertical_diff_core_C(const uint8_t *p8, int pitch)
   return    res;
 }
 
-// vertical_diff_yv12_chroma_c: vertical_diff_chroma<4>
-// vertical_diff_yuy2_chroma_c: vertical_diff_chroma<8>
+// VUV420: vertical_diff_chroma<4>
+// others: vertical_diff_chroma<8>
 template<typename pixel_t, int blksizeY>
 uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int pitch)
 {
@@ -1220,8 +1220,9 @@ AVS_FORCEINLINE void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int sp
   Copy_C<8, 8, pixel_t>(dest, dpitch, src, spitch);
 }
 
-// copy_yv12_chroma: copy_chroma_core<4,4>
-// copy_yuy2_chroma: copy_chroma_core<4,8>
+// YUV420: copy_chroma_core<4,4>
+// YUV422: copy_chroma_core<4,8>
+// YUV444: copy_chroma_core<8,8>
 template<int blksizeX, int blksizeY, typename pixel_t>
 void copy_chroma_core(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch)
 {
@@ -1611,7 +1612,7 @@ public:
         show_motion = &Postprocessing::show_motion_core<uint8_t, 8, 8>;
       }
       else if (_xRatioUV == 2 && _yRatioUV == 1) {
-        // 4:2:2 YV16 YUY2
+        // 4:2:2 YV16
         copy_chroma = copy_chroma_core<4, 8, uint8_t>;
         postprocessing = &Postprocessing::postprocessing_core<uint8_t, 4, 8>;
         show_motion = &Postprocessing::show_motion_core<uint8_t, 4, 8>;
@@ -1676,7 +1677,7 @@ public:
         postprocessing = &Postprocessing::postprocessing_core<uint16_t, 8, 8>;
         show_motion = &Postprocessing::show_motion_core<uint16_t, 8, 8>;
       }
-      else if (_xRatioUV == 2 && _yRatioUV == 1) { // 4:2:2 YV16 YUY2
+      else if (_xRatioUV == 2 && _yRatioUV == 1) { // 4:2:2 YV16
         copy_chroma = copy_chroma_core<4, 8, uint16_t>;
         postprocessing = &Postprocessing::postprocessing_core<uint16_t, 4, 8>;
         show_motion = &Postprocessing::show_motion_core<uint16_t, 4, 8>;
@@ -1693,7 +1694,7 @@ public:
 };
 
 
-class RemoveDirt : public Postprocessing, public AccessFrame
+class RemoveDirt : public Postprocessing
 {
   friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
   bool grey;
@@ -1704,10 +1705,10 @@ public:
   int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
 
 
-  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, bool yuy2, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
+  RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
     int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
     : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, pthreshold, cthreshold, _xRatioUV, _yRatioUV, _bits_per_pixel, env)
-    , AccessFrame(_width, yuy2), grey(_grey), show(_show)
+    , grey(_grey), show(_show)
   {
     blocks = debug ? (hblocks * vblocks) : 0;
   }
@@ -1715,23 +1716,23 @@ public:
 
 int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame)
 {
-  const BYTE *nextY = GetReadPtrY(next);
-  int   nextPitchY = GetPitchY(next);
+  const BYTE *nextY = next->GetReadPtr(PLANAR_Y);
+  int   nextPitchY = next->GetPitch(PLANAR_Y);
   if (bits_per_pixel == 8)
-    markblocks<uint8_t>(GetReadPtrY(previous), GetPitchY(previous), nextY, nextPitchY);
+    markblocks<uint8_t>(previous->GetReadPtr(PLANAR_Y), previous->GetPitch(PLANAR_Y), nextY, nextPitchY);
   else
-    markblocks<uint16_t>(GetReadPtrY(previous), GetPitchY(previous), nextY, nextPitchY);
+    markblocks<uint16_t>(previous->GetReadPtr(PLANAR_Y), previous->GetPitch(PLANAR_Y), nextY, nextPitchY);
 
-  BYTE *destY = GetWritePtrY(dest);
-  BYTE *destU = GetWritePtrU(dest);
-  BYTE *destV = GetWritePtrV(dest);
-  int   destPitchY = GetPitchY(dest);
-  int   destPitchUV = GetPitchUV(dest);
-  const BYTE *srcY = GetReadPtrY(src);
-  const BYTE *srcU = GetReadPtrU(src);
-  const BYTE *srcV = GetReadPtrV(src);
-  int   srcPitchY = GetPitchY(src);
-  int   srcPitchUV = GetPitchUV(src);
+  BYTE *destY = dest->GetWritePtr(PLANAR_Y);
+  BYTE *destU = dest->GetWritePtr(PLANAR_U);
+  BYTE *destV = dest->GetWritePtr(PLANAR_V);
+  int   destPitchY = dest->GetPitch(PLANAR_Y);
+  int   destPitchUV = dest->GetPitch(PLANAR_U);
+  const BYTE *srcY = src->GetReadPtr(PLANAR_Y);
+  const BYTE *srcU = src->GetReadPtr(PLANAR_U);
+  const BYTE *srcV = src->GetReadPtr(PLANAR_V);
+  int   srcPitchY = src->GetPitch(PLANAR_Y);
+  int   srcPitchUV = src->GetPitch(PLANAR_U);
 
   if (grey) 
     (*this.*postprocessing_grey)(destY, destPitchY, srcY, srcPitchY);
@@ -1826,24 +1827,21 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
   if (vi.BitsPerComponent() > 16)
     env->ThrowError("RemoveDirt: only 8-16 bit color spaces are supported");
 
-  if (vi.IsYUY2() && !args[PLANAR].AsBool(false))
-    env->ThrowError("RemoveDirt: native YUY2 not supported, use YV16 or the planar hack with planar=true");
+  if (vi.IsYUY2()) {
+    env->ThrowError("RemoveDirt: native YUY2 not supported, not even by the planar hack with planar=true");
+  }
 
   if (vi.IsYV411())
     env->ThrowError("RemoveDirt: YV411 not supported");
 
   if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA())
-    env->ThrowError("RemoveDirt: only Y, planar YUV(A) and planar YUY2 clips are supported");
+    env->ThrowError("RemoveDirt: only Y and planar YUV(A)");
 
   int   pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
 
   int xRatioUV = 1;
   int yRatioUV = 1;
-  if (vi.IsYUY2()) {
-    xRatioUV = 2;
-    yRatioUV = 1;
-  } 
-  else if (!vi.IsY()) {
+  if (!vi.IsY()) {
     xRatioUV = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
     yRatioUV = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
   }
@@ -1851,7 +1849,7 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
   const bool grey = vi.IsY() || args[GREY].AsBool(false); // fallback to compulsory grey mode
 
   filter->rd = new RemoveDirt(vi.width, vi.height, args[DIST].AsInt(DEFAULT_DIST), args[TOLERANCE].AsInt(DEFAULT_TOLERANCE), args[DMODE].AsInt(0)
-    , args[MTHRES].AsInt(DEFAULT_MTHRESHOLD), args[NOISE].AsInt(0), args[NOISY].AsInt(-1), vi.IsYUY2()
+    , args[MTHRES].AsInt(DEFAULT_MTHRESHOLD), args[NOISE].AsInt(0), args[NOISY].AsInt(-1)
     , pthreshold, args[CTHRES].AsInt(pthreshold)
     , grey, args[SHOW].AsBool(false), args[DEBUG].AsBool(false), xRatioUV, yRatioUV, vi.BitsPerComponent(), env);
 
@@ -1985,7 +1983,7 @@ static int64_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2,
 
 #define SPOINTER(p) p.operator->()
 
-class   SCSelect : public GenericVideoFilter, public AccessFrame
+class   SCSelect : public GenericVideoFilter
 {
   PClip scene_begin;
   PClip scene_end;
@@ -2004,19 +2002,19 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
   {
-    IClip *selected;
+    PClip selected;
     const char *debugmsg;
     if (n == 0)
     {
     set_begin:
       debugmsg = "[%u] SCSelect: scene begin\n";
-      selected = SPOINTER(scene_begin);
+      selected = scene_begin;
     }
     else if (n >= vi.num_frames)
     {
     set_end:
       debugmsg = "[%u] SCSelect: scene end\n";
-      selected = SPOINTER(scene_end);
+      selected = scene_end;
     }
     else
     {
@@ -2037,7 +2035,7 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
           }
         }
         else {
-          lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(pf), GetPitchY(pf), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+          lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), pf->GetReadPtr(PLANAR_Y), pf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
         }
       }
       int64_t olddiff = lastdiff;
@@ -2055,29 +2053,26 @@ class   SCSelect : public GenericVideoFilter, public AccessFrame
           }
         }
         else {
-          lastdiff = gdiff(GetReadPtrY(sf), GetPitchY(sf), GetReadPtrY(nf), GetPitchY(nf), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+          lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), nf->GetReadPtr(PLANAR_Y), nf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
         }
         lnr = n;
       }
       if (dirmult * olddiff < lastdiff) goto set_end;
       if (dirmult * lastdiff < olddiff) goto set_begin;
       debugmsg = "[%u] SCSelect: global motion\n";
-      selected = SPOINTER(global_motion);
+      selected = global_motion;
     }
     if (debug) debug_printf(debugmsg, n);
     return selected->GetFrame(n, env);
   }
 public:
   SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
-    : GenericVideoFilter(clip), AccessFrame(vi.width, vi.IsYUY2()), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
+    : GenericVideoFilter(clip), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
   {
     // all bit-depths are supported
 
-    if (vi.IsYUY2() && !planar)
-      env->ThrowError("SCSelect: native YUY2 not supported, use YV16 or the planar hack with planar=true");
-
     if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA() && !vi.IsPlanarRGB() && !vi.IsPlanarRGBA())
-      env->ThrowError("SCSelect: only Y, YUV(A), planar RGB(A) and planar YUY2 clips are supported");
+      env->ThrowError("SCSelect: only Y, YUV(A), planar RGB(A) clips are supported");
 
     CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
     CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
