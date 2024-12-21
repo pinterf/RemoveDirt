@@ -31,8 +31,6 @@
 // Part 1: options at compile time
 //
 
-//#define RANGEFILES 
-
 #define FHANDLERS 9
 //#define TEST_BLOCKCOMPARE
 //#define TEST_VERTICAL_DIFF
@@ -86,14 +84,6 @@
 #include <stdio.h>
 #include "common.h"
 
-//
-// Part 3: auxiliary functions
-//
-
-//
-// Part 4: block comparison functions
-//
-
 /****************************************************
 * C functions
 ****************************************************/
@@ -141,40 +131,6 @@ uint32_t NSADcompare_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitch
     p1 += pitch1;
     p2 += pitch2;
   }
-  /*
-  Code kept for warning:
-
-  This kind of tricky loop - which is like a hand-optimized assembler - was probably good in 2005 
-  and helped VS2005 to generate faster code.
-
-  But in 2019 it's way too complicated, the real algorithm is hidden behind the pointer and counter tricks.
-  Unoptimizable.
-
-  The clean code above is optimized with SIMD instructions even by Visual Studio.
-  More: both SSE4.1 and SSE2 vector code is generated and chosen runtime depending on processor.
-  
-  // old code:
-  pitch1 -= blksizeX;
-  pitch2 -= blksizeX;
-  int   res = 0;
-  int   i = blksizeY;
-  do
-  {
-    int j = blksizeX;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if (diff < 0) diff = -diff;
-      diff -= noise;
-      if (diff < 0) diff = 0;
-      res += diff;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  */
   return res;
 }
 
@@ -197,36 +153,6 @@ uint32_t ExcessPixels_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitc
     p1 += pitch1;
     p2 += pitch2;
   }
-  /*
-  Code kept for warning:
-
-  This kind of tricky loop - which is like a hand-optimized assembler - was probably good in 2005
-  and helped VS2005 to generate faster code.
-
-  But in 2019 it's of no use, the real algorithm is hidden behind the pointer and counter tricks.
-  Unoptimizable.
-
-  The clean code above is optimized with a 8x unrolled loop by Visual Studio for blksizeX==8
-
-  // old code:
-  pitch1 -= blksizeX;
-  pitch2 -= blksizeX;
-  int   count = 0;
-  int   i = blksizeY;
-  do
-  {
-    int j = blksizeX;
-    do
-    {
-      int diff = p1[0] - p2[0];
-      if ((diff > noise) || (diff < -noise)) ++count;
-      ++p1;
-      ++p2;
-    } while (--j);
-    p1 += pitch1;
-    p2 += pitch2;
-  } while (--i);
-  */
   return count;
 }
 
@@ -1249,17 +1175,6 @@ uint32_t vertical_diff_core_C(const uint8_t *p8, int pitch)
     res += diff;
     p += pitch;
   }
-  /* 
-  // old code, unoptimizable by VS
-  int   i = blocksizeY;
-  do
-  {
-    int diff = p[0] - p[1];
-    if (diff < 0) res -= diff;
-    else res += diff;
-    p += pitch;
-  } while (--i);
-  */
   return    res;
 }
 
@@ -1285,39 +1200,6 @@ uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int p
     v += pitch;
   }
   // as of v0.9.2 no internal downscaling occurs for YV16/YV24 (for having the subsampled YV12 result), cthreshold_v is scaled instead
-  /*
-  // old code, unoptimizable by VS
-  int   i = 4;
-  do
-  {
-    int diff = u[0] - u[1];
-    if (diff < 0) res -= diff;
-    else res += diff;
-    diff = v[0] - v[1];
-    if (diff < 0) res -= diff;
-    else res += diff;
-    u += pitch;
-    v += pitch;
-  } while (--i);
-
-  if constexpr (blksizeY == 8) {
-    // no vertical subsampling e.g. planar YUY2, YV16, YV24
-    int   res2 = 0;
-    i = 4;
-    do
-    {
-      int diff = u[0] - u[1];
-      if (diff < 0) res2 -= diff;
-      else res2 += diff;
-      diff = v[0] - v[1];
-      if (diff < 0) res2 -= diff;
-      else res2 += diff;
-      u += pitch;
-      v += pitch;
-    } while (--i);
-    res = (res + res2 + 1) / 2; // normalize result
-  }
-  */
   return    res;
 }
 
@@ -1869,19 +1751,9 @@ class   RestoreMotionBlocks : public GenericVideoFilter
 {
   friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
 protected:
-#ifdef  RANGEFILES
-  RemoveDirt *rd[FHANDLERS + 1];
-  unsigned char *select;
-  int       mthreshold[FHANDLERS + 1];
-#define SELECT(n)   rd[select[n]]
-#define MTHRESHOLD(n)   mthreshold[select[n]]
-#else
+
   RemoveDirt *rd;
   int   mthreshold;
-#define MTHRESHOLD(n)   mthreshold
-#define SELECT(n)   rd  
-
-#endif
   PClip restore;
   PClip after;
   PClip before;
@@ -1890,7 +1762,7 @@ protected:
   int       before_offset, after_offset;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE /*MT_SERIALIZED*/ : 0;
+    return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE : 0;
   }
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
@@ -1901,7 +1773,7 @@ protected:
     PVideoFrame rf = restore->GetFrame(n, env);
     PVideoFrame nf = after->GetFrame(n + after_offset, env);
     env->MakeWritable(&df); // preserves frame properties of v8
-    if (SELECT(n)->ProcessFrame(df, rf, pf, nf, n) > MTHRESHOLD(n))
+    if (rd->ProcessFrame(df, rf, pf, nf, n) > mthreshold)
       return alternative->GetFrame(n, env);
     else return df;
   }
@@ -1911,26 +1783,13 @@ public:
 
   ~RestoreMotionBlocks()
   {
-#ifdef  RANGEFILES
-    int i = FHANDLERS;
-    do
-    {
-      if (rd[i] != NULL) delete rd[i];
-    } while (--i >= 0);
-
-    delete[] select;
-#else
     delete rd;
-#endif
   }
 };
 
 RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env)
   : GenericVideoFilter(filtered), restore(_restore), after(neighbour), before(neighbour2), alternative(_alternative)
 {
-#ifdef  RANGEFILES
-  select = new unsigned char[vi.num_frames];
-#endif
   lastframe = vi.num_frames - 1;
   before_offset = after_offset = 0;
   if (after == NULL)
@@ -1955,11 +1814,6 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   CompareVideoInfo(vi, before->GetVideoInfo(), "RemoveDirt", env);
   CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt", env);
 }
-
-#ifdef  RANGEFILES
-
-#else   // RANGEFILES
-
 
 const   char    *creatstr = "cc[neighbour]c[neighbour2]c[alternative]c[planar]b[show]b[debug]b[gmthreshold]i[mthreshold]i[noise]i[noisy]i[dist]i[tolerance]i[dmode]i[pthreshold]i[cthreshold]i[grey]b";
 
@@ -2105,6 +1959,7 @@ int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYT
   return totalsum;
 }
 #endif
+
 
 // SCSelect helper
 static int64_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int width, int height, int bits_per_pixel,bool useSSE2)
@@ -2260,4 +2115,3 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   //debug_printf(LOGO);
   return NULL;
 }
-#endif  // RANGEFILES
