@@ -1712,13 +1712,12 @@ struct processFrameParams {
 
 class RemoveDirt : public Postprocessing
 {
-  friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
-  bool grey;
   bool show;
-  int       blocks;
+  int blocks;
+
 public:
 
-  int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
+  bool grey;
   int   ProcessFrame(processFrameParams& frameParams, int frame);
 
   RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
