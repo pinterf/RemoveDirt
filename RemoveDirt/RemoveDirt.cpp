@@ -91,7 +91,7 @@
 AVS_FORCEINLINE unsigned int SADABS(int x) { return (x < 0) ? -x : x; }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-static AVS_FORCEINLINE uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const uint8_t *pRef, int nRefPitch)
+static AVS_FORCEINLINE uint32_t Sad_C(const uint8_t *pSrc, intptr_t nSrcPitch, const uint8_t *pRef, intptr_t nRefPitch)
 {
   uint32_t sum = 0;
   for (int y = 0; y < nBlkHeight; y++)
@@ -105,13 +105,13 @@ static AVS_FORCEINLINE uint32_t Sad_C(const uint8_t *pSrc, int nSrcPitch, const 
 }
 
 template<typename pixel_t, int blksizeX, int blksizeY>
-uint32_t SADcompare_C(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/)
+uint32_t SADcompare_C(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int /*noise*/)
 {
   return Sad_C<8, 8, pixel_t>(p1, pitch1, p2, pitch2);
 }
 
 template<typename pixel_t, int blksizeX, int blksizeY>
-uint32_t NSADcompare_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitch2, int noise)
+uint32_t NSADcompare_C(const BYTE *p1_8, intptr_t pitch1, const BYTE *p2_8, intptr_t pitch2, int noise)
 {
   const pixel_t *p1 = reinterpret_cast<const pixel_t*>(p1_8);
   const pixel_t *p2 = reinterpret_cast<const pixel_t*>(p2_8);
@@ -135,7 +135,7 @@ uint32_t NSADcompare_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitch
 }
 
 template<typename pixel_t, int blksizeX, int blksizeY>
-uint32_t ExcessPixels_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitch2, int noise)
+uint32_t ExcessPixels_C(const BYTE *p1_8, intptr_t pitch1, const BYTE *p2_8, intptr_t pitch2, int noise)
 {
   const pixel_t *p1 = reinterpret_cast<const pixel_t*>(p1_8);
   const pixel_t *p2 = reinterpret_cast<const pixel_t*>(p2_8);
@@ -164,7 +164,7 @@ uint32_t ExcessPixels_C(const BYTE *p1_8, int pitch1, const BYTE *p2_8, int pitc
 * SIMD functions
 ****************************************************/
 
-uint32_t SADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int /*noise*/) {
+uint32_t SADcompare_simd(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int /*noise*/) {
   // optimizer makes it fast for SIMD
   return Sad_C<8, 8, uint8_t>(p1, pitch1, p2, pitch2);
 }
@@ -175,7 +175,7 @@ static AVS_FORCEINLINE __m128i _mm_loadh_epi64(__m128i x, __m128i *p)
   return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(x), (double *)p));
 }
 
-uint32_t NSADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t NSADcompare_simd(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int noise)
 {
   __m128i noise_vector = _mm_set1_epi8(noise);
 
@@ -233,7 +233,7 @@ uint32_t NSADcompare_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2
 #endif
 
 #ifdef INTEL_INTRINSICS
-uint32_t ExcessPixels_simd(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise)
+uint32_t ExcessPixels_simd(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int noise)
 {
   __m128i noise_vector = _mm_set1_epi8(noise);
   auto zero = _mm_setzero_si128();
@@ -320,22 +320,22 @@ public:
   int   motionblocks;
   unsigned char *blockproperties;
   int   linewidth;
-  uint32_t (*blockcompare)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
+  uint32_t (*blockcompare)(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int noise);
   int   hblocks, vblocks;
 
   int bits_per_pixel;
 
-  uint32_t (*blockcompare_C)(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2, int noise);
+  uint32_t (*blockcompare_C)(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2, int noise);
 
   template<typename pixel_t>
-  void  markblocks(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+  void  markblocks(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2)
   {
     constexpr int pixelsize = sizeof(pixel_t);
 
     motionblocks = 0;
 
-    int inc1 = MOTIONBLOCKHEIGHT * pitch1 - linewidth * pixelsize;
-    int inc2 = MOTIONBLOCKHEIGHT * pitch2 - linewidth * pixelsize;
+    intptr_t inc1 = MOTIONBLOCKHEIGHT * pitch1 - linewidth * pixelsize;
+    intptr_t inc2 = MOTIONBLOCKHEIGHT * pitch2 - linewidth * pixelsize;
     unsigned char *properties = blockproperties;
 
     int j = vblocks;
@@ -521,7 +521,7 @@ private:
 public:
 
   template<typename pixel_t>
-  void  markblocks(const BYTE *p1, int pitch1, const BYTE *p2, int pitch2)
+  void  markblocks(const BYTE *p1, intptr_t pitch1, const BYTE *p2, intptr_t pitch2)
   {
     MotionDetection::markblocks<pixel_t>(p1, pitch1, p2, pitch2);
     distblocks = 0;
@@ -650,7 +650,7 @@ void MotionDetectionDist::markneighbours()
 }
 
 template<typename pixel_t>
-uint32_t horizontal_diff_C(const uint8_t *p, int pitch)
+uint32_t horizontal_diff_C(const uint8_t *p, intptr_t pitch)
 {
   return Sad_C<8, 1, pixel_t>(p, pitch, p + pitch, pitch);
 }
@@ -658,7 +658,7 @@ uint32_t horizontal_diff_C(const uint8_t *p, int pitch)
 #ifdef INTEL_INTRINSICS
 
 template<typename pixel_t>
-uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
+uint32_t horizontal_diff_simd(const uint8_t *p, intptr_t pitch)
 {
   // 8 pixels
   if constexpr (sizeof(pixel_t) == 1) {
@@ -694,7 +694,7 @@ uint32_t horizontal_diff_simd(const uint8_t *p, int pitch)
 #endif
 
 template<typename pixel_t, int blksizeX>
-uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
+uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, intptr_t pitch)
 {
   assert(blksizeX == 4 || blksizeX == 8);
   return Sad_C<blksizeX, 1, pixel_t>(u, pitch, u + pitch, pitch) + Sad_C<4, 1, pixel_t>(v, pitch, v + pitch, pitch);
@@ -703,7 +703,7 @@ uint32_t horizontal_diff_chroma_C(const uint8_t *u, const uint8_t *v, int pitch)
 
 #ifdef INTEL_INTRINSICS
 template<typename pixel_t, int blksizeX>
-uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pitch)
+uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, intptr_t pitch)
 {
   assert(blksizeX == 4 || blksizeX == 8);
 
@@ -805,7 +805,7 @@ uint32_t horizontal_diff_chroma_simd(const uint8_t *u, const uint8_t *v, int pit
 
 #ifdef INTEL_INTRINSICS
 template<typename pixel_t>
-static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
+static uint32_t vertical_diff_sse2(const uint8_t *p, intptr_t pitch)
 {
   if constexpr (sizeof(pixel_t) == 1) {
     __m128i xmm0 = _mm_undefined_si128();
@@ -895,7 +895,7 @@ static uint32_t vertical_diff_sse2(const uint8_t *p, int32_t pitch)
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
+static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, intptr_t pitch)
 {
   // 10-16 bits, pixel_t is uint16_t
   __m128i xmm0 = _mm_undefined_si128();
@@ -946,7 +946,7 @@ static uint32_t vertical_diff_uint16_sse4(const uint8_t *p, int32_t pitch)
 // YUV420: vertical_diff_chroma<4>
 // others: vertical_diff_chroma<8>
 template<typename pixel_t, int blksizeY>
-uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, int pitch)
+uint32_t vertical_diff_chroma_core_sse2(const uint8_t *u, const uint8_t *v, intptr_t pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -1092,7 +1092,7 @@ template<int blksizeY>
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *v, int pitch)
+uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *v, intptr_t pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -1162,7 +1162,7 @@ uint32_t vertical_diff_chroma_core_uint16_sse4(const uint8_t *u, const uint8_t *
 #endif
 
 template<typename pixel_t>
-uint32_t vertical_diff_core_C(const uint8_t *p8, int pitch)
+uint32_t vertical_diff_core_C(const uint8_t *p8, intptr_t pitch)
 {
   // always 8 pixels for luma
   const pixel_t *p = reinterpret_cast<const pixel_t*>(p8);
@@ -1181,7 +1181,7 @@ uint32_t vertical_diff_core_C(const uint8_t *p8, int pitch)
 // VUV420: vertical_diff_chroma<4>
 // others: vertical_diff_chroma<8>
 template<typename pixel_t, int blksizeY>
-uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int pitch)
+uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, intptr_t pitch)
 {
   assert(blksizeY == 4 || blksizeY == 8);
 
@@ -1204,7 +1204,7 @@ uint32_t vertical_diff_chroma_core_C(const uint8_t *u8, const uint8_t *v8, int p
 }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-AVS_FORCEINLINE void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, int nSrcPitch)
+AVS_FORCEINLINE void Copy_C(uint8_t *pDst, intptr_t nDstPitch, const uint8_t *pSrc, intptr_t nSrcPitch)
 {
   for (int j = 0; j < nBlkHeight; j++)
   {
@@ -1215,7 +1215,7 @@ AVS_FORCEINLINE void Copy_C(uint8_t *pDst, int nDstPitch, const uint8_t *pSrc, i
 }
 
 template<int nBlkWidth, int nBlkHeight, typename pixel_t>
-AVS_FORCEINLINE void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int spitch)
+AVS_FORCEINLINE void copy_luma_C(BYTE *dest, intptr_t dpitch, const BYTE *src, intptr_t spitch)
 {
   Copy_C<8, 8, pixel_t>(dest, dpitch, src, spitch);
 }
@@ -1224,14 +1224,14 @@ AVS_FORCEINLINE void copy_luma_C(BYTE *dest, int dpitch, const BYTE *src, int sp
 // YUV422: copy_chroma_core<4,8>
 // YUV444: copy_chroma_core<8,8>
 template<int blksizeX, int blksizeY, typename pixel_t>
-void copy_chroma_core(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch)
+void copy_chroma_core(BYTE *destu, BYTE *destv, intptr_t dpitch, const BYTE *srcu, const BYTE *srcv, intptr_t spitch)
 {
   Copy_C<blksizeX, blksizeY, pixel_t>(destu, dpitch, srcu, spitch);
   Copy_C<blksizeX, blksizeY, pixel_t>(destv, dpitch, srcv, spitch);
 }
 
 template<int blksizeY>
-void inline colorise(BYTE *u, BYTE *v, int pitch, uint32_t ucolor, uint32_t vcolor)
+void inline colorise(BYTE *u, BYTE *v, intptr_t pitch, uint32_t ucolor, uint32_t vcolor)
 {
   for(int i = 0; i < blksizeY; i++)
   {
@@ -1250,23 +1250,23 @@ class   Postprocessing
   int   cthreshold_h; // filter parameter corrected with bit depth factor for horizontal_diff
   int   cthreshold_v; // filter parameter corrected with bit depth factor for vertical_diff
 
-  uint32_t(*vertical_diff)(const uint8_t *p, int32_t pitch);
-  uint32_t(*vertical_diff_C)(const uint8_t *p, int32_t pitch);
-  uint32_t(*horizontal_diff)(const BYTE *p, int pitch);
-  uint32_t(*horizontal_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
-  void(*copy_luma)(BYTE *dest, int dpitch, const BYTE *src, int spitch);
+  uint32_t(*vertical_diff)(const uint8_t *p, intptr_t pitch);
+  uint32_t(*vertical_diff_C)(const uint8_t *p, intptr_t pitch);
+  uint32_t(*horizontal_diff)(const BYTE *p, intptr_t pitch);
+  uint32_t(*horizontal_diff_chroma)(const BYTE *u, const BYTE *v, intptr_t pitch);
+  void(*copy_luma)(BYTE *dest, intptr_t dpitch, const BYTE *src, intptr_t spitch);
 
-  uint32_t (*vertical_diff_chroma)(const BYTE *u, const BYTE *v, int pitch);
-  void (*copy_chroma)(BYTE *destu, BYTE *destv, int dpitch, const BYTE *srcu, const BYTE *srcv, int spitch);
-  uint32_t (*vertical_diff_chroma_C)(const BYTE *u, const BYTE *v, int pitch);
+  uint32_t (*vertical_diff_chroma)(const BYTE *u, const BYTE *v, intptr_t pitch);
+  void (*copy_chroma)(BYTE *destu, BYTE *destv, intptr_t dpitch, const BYTE *srcu, const BYTE *srcv, intptr_t spitch);
+  uint32_t (*vertical_diff_chroma_C)(const BYTE *u, const BYTE *v, intptr_t pitch);
 
 public:
   int       loops;
   int       restored_blocks;
 
-  void(Postprocessing::*postprocessing)(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV);
-  void(Postprocessing::*postprocessing_grey)(BYTE *dp, int dpitch, const BYTE *sp, int spitch);
-  void(Postprocessing::*show_motion)(BYTE *u, BYTE *v, int pitchUV);
+  void(Postprocessing::*postprocessing)(BYTE *dp, intptr_t dpitch, BYTE *dpU, BYTE *dpV, intptr_t dpitchUV, const BYTE *sp, intptr_t spitch, const BYTE *spU, const BYTE *spV, intptr_t spitchUV);
+  void(Postprocessing::*postprocessing_grey)(BYTE *dp, intptr_t dpitch, const BYTE *sp, intptr_t spitch);
+  void(Postprocessing::*show_motion)(BYTE *u, BYTE *v, intptr_t pitchUV);
 
 #define leftdp      (-1)
 #define rightdp     7
@@ -1280,14 +1280,14 @@ public:
 #define leftblsp    leftbldp
 
   template<typename pixel_t>
-  void  postprocessing_grey_core(BYTE *dp, int dpitch, const BYTE *sp, int spitch)
+  void  postprocessing_grey_core(BYTE *dp, intptr_t dpitch, const BYTE *sp, intptr_t spitch)
   {
     constexpr int pixelsize = sizeof(pixel_t); // 1 or 2 bytes
 
-    int bottomdp = 7 * dpitch;
-    int bottomsp = 7 * spitch;
-    int dinc = MOTIONBLOCKHEIGHT * dpitch - linewidth * pixelsize;
-    int sinc = MOTIONBLOCKHEIGHT * spitch - linewidth * pixelsize;
+    intptr_t bottomdp = 7 * dpitch;
+    intptr_t bottomsp = 7 * spitch;
+    intptr_t dinc = MOTIONBLOCKHEIGHT * dpitch - linewidth * pixelsize;
+    intptr_t sinc = MOTIONBLOCKHEIGHT * spitch - linewidth * pixelsize;
 
     loops = restored_blocks = 0;
 
@@ -1366,7 +1366,7 @@ public:
 
 
   template<typename pixel_t, int blksizeXchroma, int blksizeYchroma>
-  void  postprocessing_core(BYTE *dp, int dpitch, BYTE *dpU, BYTE *dpV, int dpitchUV, const BYTE *sp, int spitch, const BYTE *spU, const BYTE *spV, int spitchUV)
+  void  postprocessing_core(BYTE *dp, intptr_t dpitch, BYTE *dpU, BYTE *dpV, intptr_t dpitchUV, const BYTE *sp, intptr_t spitch, const BYTE *spU, const BYTE *spV, intptr_t spitchUV)
   {
     constexpr int pixelsize = sizeof(pixel_t); // 1 or 2 bytes
 
@@ -1375,17 +1375,17 @@ public:
     constexpr int Cleftsp = Cleftdp;
     constexpr int Crightsp = Crightdp;
 
-    const int Ctopdp = -dpitchUV;
-    const int Ctopsp = -spitchUV;
+    const intptr_t Ctopdp = -dpitchUV;
+    const intptr_t Ctopsp = -spitchUV;
 
-    const int bottomdp = 7 * dpitch;
-    const int bottomsp = 7 * spitch;
-    const int Cbottomdp = (blksizeYchroma - 1) * dpitchUV;
-    const int Cbottomsp = (blksizeYchroma - 1) * spitchUV;
-    int dinc = MOTIONBLOCKHEIGHT * dpitch - linewidth * pixelsize;
-    int sinc = MOTIONBLOCKHEIGHT * spitch - linewidth * pixelsize;
-    int dincUV = blksizeYchroma * dpitchUV - linewidthUV * pixelsize;
-    int sincUV = blksizeYchroma * spitchUV - linewidthUV * pixelsize;
+    const intptr_t bottomdp = 7 * dpitch;
+    const intptr_t bottomsp = 7 * spitch;
+    const intptr_t Cbottomdp = (blksizeYchroma - 1) * dpitchUV;
+    const intptr_t Cbottomsp = (blksizeYchroma - 1) * spitchUV;
+    intptr_t dinc = MOTIONBLOCKHEIGHT * dpitch - linewidth * pixelsize;
+    intptr_t sinc = MOTIONBLOCKHEIGHT * spitch - linewidth * pixelsize;
+    intptr_t dincUV = blksizeYchroma * dpitchUV - linewidthUV * pixelsize;
+    intptr_t sincUV = blksizeYchroma * spitchUV - linewidthUV * pixelsize;
 
     loops = restored_blocks = 0;
 
@@ -1476,9 +1476,9 @@ public:
   }
 
   template<typename pixel_t, int blksizeXchroma, int blksizeYchroma>
-  void  show_motion_core(BYTE *u, BYTE *v, int pitchUV)
+  void  show_motion_core(BYTE *u, BYTE *v, intptr_t pitchUV)
   {
-    int inc = blksizeYchroma * pitchUV - linewidthUV * sizeof(pixel_t);
+    intptr_t inc = blksizeYchroma * pitchUV - linewidthUV * sizeof(pixel_t);
 
     unsigned char *properties = blockproperties;
 
@@ -1869,7 +1869,7 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
 
 
 template<typename pixel_t>
-static int64_t calculate_sad_c(const BYTE* cur_ptr, int cur_pitch, const BYTE* other_ptr, int other_pitch, int32_t width, int32_t height)
+static int64_t calculate_sad_c(const BYTE* cur_ptr, intptr_t cur_pitch, const BYTE* other_ptr, intptr_t other_pitch, int32_t width, int32_t height)
 {
   const pixel_t *ptr1 = reinterpret_cast<const pixel_t *>(cur_ptr);
   const pixel_t *ptr2 = reinterpret_cast<const pixel_t *>(other_ptr);
@@ -1900,7 +1900,7 @@ static int64_t calculate_sad_c(const BYTE* cur_ptr, int cur_pitch, const BYTE* o
 #ifdef INTEL_INTRINSICS
 // works for uint8_t, but there is a specific, bit faster function above
 template<typename pixel_t>
-int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYTE* other_ptr, int other_pitch, int32_t width, int32_t height)
+int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, intptr_t cur_pitch, const BYTE* other_ptr, intptr_t other_pitch, int32_t width, int32_t height)
 {
   const int rowsize = width * sizeof(pixel_t);
   int mod16_width = rowsize / 16 * 16;
@@ -1960,7 +1960,7 @@ int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, int cur_pitch, const BYT
 
 
 // SCSelect helper
-static int64_t gdiff(const BYTE *sp1, int spitch1, const BYTE *sp2, int spitch2, int width, int height, int bits_per_pixel,bool useSSE2)
+static int64_t gdiff(const BYTE *sp1, intptr_t spitch1, const BYTE *sp2, intptr_t spitch2, int width, int height, int bits_per_pixel,bool useSSE2)
 {
   if (bits_per_pixel == 8)
 #ifdef INTEL_INTRINSICS
