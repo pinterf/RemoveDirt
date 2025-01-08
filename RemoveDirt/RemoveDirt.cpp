@@ -366,24 +366,16 @@ public:
     } while (--j);
   }
 
-  MotionDetection(int   width, int height, uint32_t _threshold, int _noise, int _noisy, int _bits_per_pixel, IScriptEnvironment* env) : threshold(_threshold), noise(_noise), bits_per_pixel(_bits_per_pixel)
+  MotionDetection(int   width, int height, uint32_t _threshold, int _noise, int _noisy, int _bits_per_pixel, bool useSSE2) : threshold(_threshold), noise(_noise), bits_per_pixel(_bits_per_pixel)
   {
     linewidth = width;
     hblocks = width / MOTIONBLOCKWIDTH;
     vblocks = height / MOTIONBLOCKHEIGHT;
 
-#ifdef INTEL_INTRINSICS
-    const bool use_SSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
-
-    // old non-SSE2 check
-    if (!use_SSE2 & ((hblocks == 0) || (vblocks == 0)))
-        env->ThrowError("RemoveDirt: width or height of the clip too small");
-#endif
-
     if (bits_per_pixel == 8) {
       blockcompare_C = SADcompare_C<uint8_t, 8, 8>;
 #ifdef INTEL_INTRINSICS
-      blockcompare = use_SSE2 ? SADcompare_simd : SADcompare_C<uint8_t, 8, 8>;
+      blockcompare = useSSE2 ? SADcompare_simd : SADcompare_C<uint8_t, 8, 8>;
 #else
       blockcompare = blockcompare_C;
 #endif
@@ -399,7 +391,7 @@ public:
       if (bits_per_pixel == 8) {
         blockcompare_C = NSADcompare_C<uint8_t, 8, 8>;
 #ifdef INTEL_INTRINSICS
-        blockcompare = use_SSE2 ? NSADcompare_simd : NSADcompare_C<uint8_t, 8, 8>;
+        blockcompare = useSSE2 ? NSADcompare_simd : NSADcompare_C<uint8_t, 8, 8>;
 #else
         blockcompare = blockcompare_C;
 #endif
@@ -416,7 +408,7 @@ public:
         if (bits_per_pixel == 8) {
           blockcompare_C = ExcessPixels_C<uint8_t, 8, 8>;
 #ifdef INTEL_INTRINSICS
-          blockcompare = use_SSE2 ? ExcessPixels_simd : ExcessPixels_C<uint8_t, 8, 8>;
+          blockcompare = useSSE2 ? ExcessPixels_simd : ExcessPixels_C<uint8_t, 8, 8>;
 #else
           blockcompare = blockcompare_C;
 #endif
@@ -532,8 +524,8 @@ public:
     }
   }
 
-  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, uint32_t _threshold, int _noise, int _noisy, int _bits_per_pixel, IScriptEnvironment* env)
-    : MotionDetection(width, height, _threshold, _noise, _noisy, _bits_per_pixel, env)
+  MotionDetectionDist(int   width, int height, int _dist, int _tolerance, int dmode, uint32_t _threshold, int _noise, int _noisy, int _bits_per_pixel, bool useSSE2)
+    : MotionDetection(width, height, _threshold, _noise, _noisy, _bits_per_pixel, useSSE2)
   {
     fn_processneighbours_t neighbourproc[] = { &MotionDetectionDist::processneighbours1, &MotionDetectionDist::processneighbours2, &MotionDetectionDist::processneighbours3 };
     blocks = hblocks * vblocks;
@@ -1539,22 +1531,18 @@ public:
   }
 
   Postprocessing(int width, int height, int dist, int tolerance, int dmode, uint32_t threshold, int _noise, int _noisy, int _pthreshold, int _cthreshold, 
-    int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
+    int _xRatioUV, int _yRatioUV, int _bits_per_pixel, bool useSSE2, bool useSSE41)
     : MotionDetectionDist(width, height, dist, tolerance, dmode, 
       threshold << (_bits_per_pixel - 8), 
       _noise << (_bits_per_pixel - 8), 
       _noisy, // counter, do not scale
       _bits_per_pixel,
-      env)
+      useSSE2)
     , 
     pthreshold(_pthreshold << (_bits_per_pixel - 8)), 
     cthreshold_h((_cthreshold << (_bits_per_pixel - 8)) * 2 / _xRatioUV),
     cthreshold_v((_cthreshold << (_bits_per_pixel - 8)) * 2 / _yRatioUV)
   {
-#ifdef INTEL_INTRINSICS
-    const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
-    const bool useSSE41 = (env->GetCPUFlags() & CPUF_SSE4_1) == CPUF_SSE4_1;
-#endif
 
     if (_bits_per_pixel == 8) {
       copy_luma = copy_luma_C<8, 8, uint8_t>;
@@ -1721,9 +1709,9 @@ public:
   int   ProcessFrame(processFrameParams& frameParams, int frame);
 
   RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
-    int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
-    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, pthreshold, cthreshold, _xRatioUV, _yRatioUV, _bits_per_pixel, env)
-    , grey(_grey), show(_show)
+    int _xRatioUV, int _yRatioUV, int _bits_per_pixel, bool useSSE2, bool useSSE41)
+    : Postprocessing(_width, _height, dist, tolerance, dmode, threshold, noise, noisy, pthreshold, cthreshold, _xRatioUV, _yRatioUV, _bits_per_pixel, useSSE2, useSSE41)
+    , show(_show), grey(_grey)
   {
     blocks = debug ? (hblocks * vblocks) : 0;
   }
@@ -1843,11 +1831,11 @@ RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip n
   CompareVideoInfo(vi, after->GetVideoInfo(), "RemoveDirt", env);
 }
 
-const   char    *creatstr = "cc[neighbour]c[neighbour2]c[alternative]c[planar]b[show]b[debug]b[gmthreshold]i[mthreshold]i[noise]i[noisy]i[dist]i[tolerance]i[dmode]i[pthreshold]i[cthreshold]i[grey]b";
+enum restore_motion_blocks_creatargs { SRC, RESTORE, AFTER, BEFORE, ALTERNATIVE, PLANAR, SHOW, DEBUG, GMTHRES, MTHRES, NOISE, NOISY, DIST, TOLERANCE, DMODE, PTHRES, CTHRES, GREY };
 
-enum    creatargs { SRC, RESTORE, AFTER, BEFORE, ALTERNATIVE, PLANAR, SHOW, DEBUG, GMTHRES, MTHRES, NOISE, NOISY, DIST, TOLERANCE, DMODE, PTHRES, CTHRES, GREY, REDUCEF };
-
-AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env)
+// Avisynth only.
+// For VapourSynth see restoreMotionBlocksCreate
+AVSValue InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env)
 {
   VideoInfo &vi = filter->vi;
 
@@ -1864,8 +1852,6 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
   if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA())
     env->ThrowError("RemoveDirt: only Y and planar YUV(A)");
 
-  int   pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
-
   int xRatioUV = 1;
   int yRatioUV = 1;
   if (!vi.IsY()) {
@@ -1873,15 +1859,35 @@ AVSValue    InitRemoveDirt(RestoreMotionBlocks *filter, AVSValue args, IScriptEn
     yRatioUV = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
   }
 
+  const int dist = args[DIST].AsInt(DEFAULT_DIST);
+  const int tolerance = args[TOLERANCE].AsInt(DEFAULT_TOLERANCE);
+  const int dmode = args[DMODE].AsInt(0);
+  const int mthreshold = args[MTHRES].AsInt(DEFAULT_MTHRESHOLD);
+  const int noise = args[NOISE].AsInt(0);
+  const int noisy = args[NOISY].AsInt(-1);
+  const int pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
+  const int cthreshold = args[CTHRES].AsInt(pthreshold);
   const bool grey = vi.IsY() || args[GREY].AsBool(false); // fallback to compulsory grey mode
+  const bool show = args[SHOW].AsBool(false);
+  const bool debug = args[DEBUG].AsBool(false);
+  const int bitpercomponent = vi.BitsPerComponent();
+  const int gmthreshold = args[GMTHRES].AsInt(DEFAULT_GMTHRESHOLD);
 
-  filter->rd = new RemoveDirt(vi.width, vi.height, args[DIST].AsInt(DEFAULT_DIST), args[TOLERANCE].AsInt(DEFAULT_TOLERANCE), args[DMODE].AsInt(0)
-    , args[MTHRES].AsInt(DEFAULT_MTHRESHOLD), args[NOISE].AsInt(0), args[NOISY].AsInt(-1)
-    , pthreshold, args[CTHRES].AsInt(pthreshold)
-    , grey, args[SHOW].AsBool(false), args[DEBUG].AsBool(false), xRatioUV, yRatioUV, vi.BitsPerComponent(), env);
+#ifdef INTEL_INTRINSICS
+  const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+  const bool useSSE41 = (env->GetCPUFlags() & CPUF_SSE4_1) == CPUF_SSE4_1;
+#else
+  const bool useSSE2 = false;
+  const bool useSSE41 = false;
+#endif
+
+  filter->rd = new RemoveDirt(vi.width, vi.height, dist, tolerance, dmode
+    , mthreshold , noise, noisy
+    , pthreshold, cthreshold
+    , grey, show, debug, xRatioUV, yRatioUV, bitpercomponent, useSSE2, useSSE41);
 
 
-  filter->mthreshold = (args[GMTHRES].AsInt(DEFAULT_GMTHRESHOLD) * filter->rd->hblocks * filter->rd->vblocks) / 100;
+  filter->mthreshold = (gmthreshold * filter->rd->hblocks * filter->rd->vblocks) / 100;
   return filter;
 }
 
@@ -1891,7 +1897,6 @@ AVSValue __cdecl CreateRestoreMotionBlocks(AVSValue args, void* user_data, IScri
   return InitRemoveDirt(new RestoreMotionBlocks(args[SRC].AsClip(), args[RESTORE].AsClip()
     , args[AFTER].Defined() ? args[AFTER].AsClip() : NULL, args[BEFORE].Defined() ? args[BEFORE].AsClip() : NULL
     , args[ALTERNATIVE].Defined() ? args[ALTERNATIVE].AsClip() : NULL, env), args, env);
-
 }
 
 
