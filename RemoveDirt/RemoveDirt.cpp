@@ -1693,6 +1693,22 @@ public:
   }
 };
 
+struct processFrameParams {
+  const BYTE* nextY;
+  ptrdiff_t nextPitchY;
+  const BYTE* previousY;
+  ptrdiff_t previousPitchY;
+  BYTE* destY;
+  BYTE* destU;
+  BYTE* destV;
+  ptrdiff_t destPitchY;
+  ptrdiff_t destPitchUV;
+  const BYTE* srcY;
+  const BYTE* srcU;
+  const BYTE* srcV;
+  ptrdiff_t srcPitchY;
+  ptrdiff_t srcPitchUV;
+};
 
 class RemoveDirt : public Postprocessing
 {
@@ -1703,7 +1719,7 @@ class RemoveDirt : public Postprocessing
 public:
 
   int   ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame);
-
+  int   ProcessFrame(processFrameParams& frameParams, int frame);
 
   RemoveDirt(int _width, int _height, int dist, int tolerance, int dmode, uint32_t threshold, int noise, int noisy, int pthreshold, int cthreshold, bool _grey, bool _show, bool debug, 
     int _xRatioUV, int _yRatioUV, int _bits_per_pixel, IScriptEnvironment* env)
@@ -1714,33 +1730,21 @@ public:
   }
 };
 
-int RemoveDirt::ProcessFrame(PVideoFrame &dest, PVideoFrame &src, PVideoFrame &previous, PVideoFrame &next, int frame)
+int RemoveDirt::ProcessFrame(processFrameParams &frameParams, int frame)
 {
-  const BYTE *nextY = next->GetReadPtr(PLANAR_Y);
-  int   nextPitchY = next->GetPitch(PLANAR_Y);
-  if (bits_per_pixel == 8)
-    markblocks<uint8_t>(previous->GetReadPtr(PLANAR_Y), previous->GetPitch(PLANAR_Y), nextY, nextPitchY);
-  else
-    markblocks<uint16_t>(previous->GetReadPtr(PLANAR_Y), previous->GetPitch(PLANAR_Y), nextY, nextPitchY);
 
-  BYTE *destY = dest->GetWritePtr(PLANAR_Y);
-  BYTE *destU = dest->GetWritePtr(PLANAR_U);
-  BYTE *destV = dest->GetWritePtr(PLANAR_V);
-  int   destPitchY = dest->GetPitch(PLANAR_Y);
-  int   destPitchUV = dest->GetPitch(PLANAR_U);
-  const BYTE *srcY = src->GetReadPtr(PLANAR_Y);
-  const BYTE *srcU = src->GetReadPtr(PLANAR_U);
-  const BYTE *srcV = src->GetReadPtr(PLANAR_V);
-  int   srcPitchY = src->GetPitch(PLANAR_Y);
-  int   srcPitchUV = src->GetPitch(PLANAR_U);
+  if (bits_per_pixel == 8)
+    markblocks<uint8_t>(frameParams.previousY, frameParams.previousPitchY, frameParams.nextY, frameParams.nextPitchY);
+  else
+    markblocks<uint16_t>(frameParams.previousY, frameParams.previousPitchY, frameParams.nextY, frameParams.nextPitchY);
 
   if (grey) 
-    (*this.*postprocessing_grey)(destY, destPitchY, srcY, srcPitchY);
+    (*this.*postprocessing_grey)(frameParams.destY, frameParams.destPitchY, frameParams.srcY, frameParams.srcPitchY);
   else 
-    (*this.*postprocessing)(destY, destPitchY, destU, destV, destPitchUV, srcY, srcPitchY, srcU, srcV, srcPitchUV);
+    (*this.*postprocessing)(frameParams.destY, frameParams.destPitchY, frameParams.destU, frameParams.destV, frameParams.destPitchUV, frameParams.srcY, frameParams.srcPitchY, frameParams.srcU, frameParams.srcV, frameParams.srcPitchUV);
 
   if (show)
-    (*this.*show_motion)(destU, destV, destPitchUV);
+    (*this.*show_motion)(frameParams.destU, frameParams.destV, frameParams.destPitchUV);
 
   if (blocks) debug_printf("[%u] RemoveDirt: motion blocks = %4u(%2u%%), %4i(%2i%%), %4u(%2u%%), loops = %u\n", frame, motionblocks, (motionblocks * 100) / blocks
     , distblocks, (distblocks * 100) / (int)blocks, restored_blocks, (restored_blocks * 100) / blocks, loops);
@@ -1753,8 +1757,6 @@ class   RestoreMotionBlocks : public GenericVideoFilter
   friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
 protected:
 
-  RemoveDirt *rd;
-  int   mthreshold;
   PClip restore;
   PClip after;
   PClip before;
@@ -1766,18 +1768,7 @@ protected:
     return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE : 0;
   }
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
-  {
-    if ((n + before_offset < 0) || (n + after_offset > lastframe)) return alternative->GetFrame(n, env);
-    PVideoFrame pf = before->GetFrame(n + before_offset, env);
-    PVideoFrame df = child->GetFrame(n, env);
-    PVideoFrame rf = restore->GetFrame(n, env);
-    PVideoFrame nf = after->GetFrame(n + after_offset, env);
-    env->MakeWritable(&df); // preserves frame properties of v8
-    if (rd->ProcessFrame(df, rf, pf, nf, n) > mthreshold)
-      return alternative->GetFrame(n, env);
-    else return df;
-  }
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
 public:
   RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env);
@@ -1788,6 +1779,43 @@ public:
   }
 };
 
+// Avisynth only
+// keep them equivalent: RestoreMotionBlocks::GetFrame (Avisynth) restoreMotionBlocksGetFrame (VapourSynth)
+PVideoFrame RestoreMotionBlocks::GetFrame(int n, IScriptEnvironment* env)
+{
+  if ((n + before_offset < 0) || (n + after_offset > lastframe)) return alternative->GetFrame(n, env);
+  PVideoFrame pf = before->GetFrame(n + before_offset, env);
+  PVideoFrame df = child->GetFrame(n, env); // src, the filtered
+  PVideoFrame rf = restore->GetFrame(n, env);
+  PVideoFrame nf = after->GetFrame(n + after_offset, env);
+  env->MakeWritable(&df); // preserves frame properties of v8
+
+  processFrameParams frameParams;
+
+  frameParams.nextY = nf->GetReadPtr(PLANAR_Y);
+  frameParams.nextPitchY = nf->GetPitch(PLANAR_Y);
+  frameParams.previousY = pf->GetReadPtr(PLANAR_Y);
+  frameParams.previousPitchY = pf->GetPitch(PLANAR_Y);
+  frameParams.destY = df->GetWritePtr(PLANAR_Y);
+  frameParams.destPitchY = df->GetPitch(PLANAR_Y);
+  frameParams.srcY = rf->GetReadPtr(PLANAR_Y);
+  frameParams.srcPitchY = rf->GetPitch(PLANAR_Y);
+  if (!rd->grey) {
+    frameParams.destU = df->GetWritePtr(PLANAR_U);
+    frameParams.destV = df->GetWritePtr(PLANAR_V);
+    frameParams.destPitchUV = df->GetPitch(PLANAR_U);
+    frameParams.srcU = rf->GetReadPtr(PLANAR_U);
+    frameParams.srcV = rf->GetReadPtr(PLANAR_V);
+    frameParams.srcPitchUV = rf->GetPitch(PLANAR_U);
+  }
+
+  if (rd->ProcessFrame(frameParams, n) > mthreshold)
+    return alternative->GetFrame(n, env);
+  else return df;
+}
+
+// Avisynth only 
+// VapourSynth See also in restoreMotionBlocksCreate
 RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env)
   : GenericVideoFilter(filtered), restore(_restore), after(neighbour), before(neighbour2), alternative(_alternative)
 {
