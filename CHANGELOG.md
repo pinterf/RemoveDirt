@@ -2,6 +2,9 @@
 
 ## Change log
 
+- (20250108 v1.1)
+  - Fix SCSelect (VapourSynth)
+
 - (20250108 v1.0)
   - Remove YUY2 support (not even with "planar hack")
   - VapourSynth support (API 4) (dual Avisynth/VapourSynth plugin)
