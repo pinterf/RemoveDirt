@@ -2046,7 +2046,7 @@ struct SCSelectShared {
 
   // These are handled in multithreading friendly way
   int64_t lastdiff; // 8k image dimensions require int64 even at 8 bits
-  uint32_t lnr;
+  int lnr;
 };
 
 class SCSelect : public GenericVideoFilter, private SCSelectShared
@@ -2468,14 +2468,25 @@ static const VSFrame* VS_CC sCSelectGetFrame(int n, int activationReason, void* 
 
   if (activationReason == arInitial) {
     // request the very same frame numbers and clips as they appear in activationReason == arAllFramesReady
-    vsapi->requestFrameFilter(n, d->node, frameCtx);
-    if (d->lnr != n - 1)
+    if (n == 0) {
+      vsapi->requestFrameFilter(n, d->scene_begin, frameCtx);
+    }
+    else if (n >= d->numFrames) {
+      vsapi->requestFrameFilter(n, d->scene_end, frameCtx);
+    }
+    else {
+      vsapi->requestFrameFilter(n, d->node, frameCtx);
+      
+      // n-1 is always requested, we don't know whether another thread's arAllFramesReady
+      // has modified lnr since our arInitial
+      //if (d->lnr != n - 1) // no!
       vsapi->requestFrameFilter(n - 1, d->node, frameCtx);
-    if (n + 1 < d->numFrames)
-      vsapi->requestFrameFilter(n + 1, d->node, frameCtx);
-    vsapi->requestFrameFilter(n, d->scene_begin, frameCtx);
-    vsapi->requestFrameFilter(n, d->scene_end, frameCtx);
-    vsapi->requestFrameFilter(n, d->global_motion, frameCtx);
+      if (n + 1 < d->numFrames)
+        vsapi->requestFrameFilter(n + 1, d->node, frameCtx);
+      vsapi->requestFrameFilter(n, d->scene_begin, frameCtx);
+      vsapi->requestFrameFilter(n, d->scene_end, frameCtx);
+      vsapi->requestFrameFilter(n, d->global_motion, frameCtx);
+    }
   }
   else if (activationReason == arAllFramesReady) {
 
