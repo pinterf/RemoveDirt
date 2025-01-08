@@ -3,10 +3,13 @@ A plugin for removing dirt from film clips.
 
 Port of classic RemoveDirt 0.9 to Avisynth v2.6 interface (x86/x64), adding new color spaces, bugfixes by Ferenc Pintér.
 
+VapourSynth support (API 4) from v1.0
+
 Functions in plugin: RestoreMotionBlocks and SCSelect.
+
 For Linux build instructions see bottom of readme.
 
-Note: Previous v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
+Note: Previous historical Avisynth v0.9 DLL versions named differently (RemoveDirtT.DLL, RemoveDirtSSE2.DLL) should be deleted from your plugin folder.
 
 Links
 -----

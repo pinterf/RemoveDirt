@@ -2,6 +2,14 @@
 
 ## Change log
 
+- (20250108 v1.0)
+  - Remove YUY2 support (not even with "planar hack")
+  - VapourSynth support (API 4) (dual Avisynth/VapourSynth plugin)
+    VS version supports the very same basic parameters like the Avisynth version except
+    some historical compatibility parameters:
+    - RestoreMotionBlocks is omitting "planar"
+    - SCSelect is omitting "planar", "cache", "gcache"
+
 - (20210223 v0.9.3)
   - Fix a crash, which can occur on non mod8 sources
 
