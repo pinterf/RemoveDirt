@@ -1,5 +1,4 @@
-#define LOGO "RemoveDirt 0.9.2\n"
-// Avisynth filter for removing dirt from film clips
+// Avisynth and Vapoursynth filter for removing dirt from film clips
 //
 // By Rainer Wittmann <gorw@gmx.de>
 // Additional work by Ferenc Pintér
@@ -31,7 +30,6 @@
 // Part 1: options at compile time
 //
 
-#define FHANDLERS 9
 //#define TEST_BLOCKCOMPARE
 //#define TEST_VERTICAL_DIFF
 //#define TEST_VERTICAL_DIFF_CHROMA
@@ -83,6 +81,32 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "common.h"
+
+#ifdef INTEL_INTRINSICS
+// important define for VapourSynth cpufeatures
+#define VS_TARGET_CPU_X86 1
+#endif
+
+#include "VapourSynth4.h"
+#include "VSHelper4.h"
+#include "cpufeatures.h"
+
+#include <memory>
+
+class RemoveDirt; // forward
+
+// General parameters which are used in both Avisynth and Vapoursynth
+
+struct RestoreMotionBlocksShared {
+  int mthreshold;
+  int lastframe;
+  int before_offset, after_offset;
+  RemoveDirt* rd;
+
+  ~RestoreMotionBlocksShared() {
+    // free up any malloc'd buffer;
+  }
+};
 
 /****************************************************
 * C functions
@@ -1739,7 +1763,8 @@ int RemoveDirt::ProcessFrame(processFrameParams &frameParams, int frame)
   return restored_blocks + distblocks + motionblocks;
 }
 
-class   RestoreMotionBlocks : public GenericVideoFilter
+// Avisynth only
+class RestoreMotionBlocks : public GenericVideoFilter, private RestoreMotionBlocksShared
 {
   friend AVSValue InitRemoveDirt(class RestoreMotionBlocks *filter, AVSValue args, IScriptEnvironment* env);
 protected:
@@ -1748,8 +1773,6 @@ protected:
   PClip after;
   PClip before;
   PClip alternative;
-  int       lastframe;
-  int       before_offset, after_offset;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     return cachehints == CACHE_GET_MTMODE ? MT_MULTI_INSTANCE : 0;
@@ -1806,22 +1829,21 @@ PVideoFrame RestoreMotionBlocks::GetFrame(int n, IScriptEnvironment* env)
 RestoreMotionBlocks::RestoreMotionBlocks(PClip filtered, PClip _restore, PClip neighbour, PClip neighbour2, PClip _alternative, IScriptEnvironment* env)
   : GenericVideoFilter(filtered), restore(_restore), after(neighbour), before(neighbour2), alternative(_alternative)
 {
+  // sets frame number limits and replaces undefined (null) PClips with defaults from before/after
   lastframe = vi.num_frames - 1;
   before_offset = after_offset = 0;
   if (after == NULL)
   {
     after = restore;
-    goto set_before;
-  }
-  if (before != NULL)
-  {
-  }
-  else
-  {
-  set_before:
+    before = restore;
     before_offset = -1;
     after_offset = 1;
+  }
+  if (before == NULL)
+  {
     before = after;
+    before_offset = -1;
+    after_offset = 1;
   }
   if (alternative == NULL)
     alternative = restore;
@@ -2008,7 +2030,7 @@ static int64_t gdiff(const BYTE *sp1, intptr_t spitch1, const BYTE *sp2, intptr_
     else
 #endif
       return calculate_sad_c<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
-  else {
+  else { 
     // VapourSynth: theoretical 32 bit integer is not supported
     return calculate_sad_c<float>(sp1, spitch1, sp2, spitch2, width, height);
   }
@@ -2073,68 +2095,68 @@ public:
 // keep them equivalent: SCSelect::GetFrame (Avisynth) sCSelectGetFrame (VapourSynth)
 PVideoFrame SCSelect::GetFrame(int n, IScriptEnvironment* env)
 {
-    PClip selected;
+  PClip selected;
   const char* debugmsg;
-    if (n == 0)
-    {
-    set_begin:
-      debugmsg = "[%u] SCSelect: scene begin\n";
-      selected = scene_begin;
-    }
-  else if (n >= numFrames)
-    {
-    set_end:
-      debugmsg = "[%u] SCSelect: scene end\n";
-      selected = scene_end;
-    }
-    else
-    {
-      PVideoFrame sf = child->GetFrame(n, env);
-    if (lnr != n - 1) // check out-of-sequence call, calculate diff only if needed. This is why no MT is allowed (filter has global state)
-      {
-        PVideoFrame pf = child->GetFrame(n - 1, env);
-        if (isRGB) {
-          const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
-
-          lastdiff = 0;
-          // RGB: sum all planes
-          for (int p = 0; p < 3; p++)
-          {
-            int plane = planes[p];
-          lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), pf->GetReadPtr(plane), pf->GetPitch(plane), vi.width, vi.height, bits_per_pixel, useSSE2);
-          }
-        }
-        else {
-          lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), pf->GetReadPtr(PLANAR_Y), pf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
-        }
-      }
-      int64_t olddiff = lastdiff;
-      {
-      PVideoFrame nf = child->GetFrame(n + 1, env); // in VapourSynth part reading beyond numFrames is guarded
-        if (isRGB) {
-          // RGB: sum all planes
-          const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
-
-          lastdiff = 0;
-          for (int p = 0; p < 3; p++)
-          {
-            int plane = planes[p];
-            lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), nf->GetReadPtr(plane), nf->GetPitch(plane), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
-          }
-        }
-        else {
-          lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), nf->GetReadPtr(PLANAR_Y), nf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
-        }
-        lnr = n;
-      }
-      if (dirmult * olddiff < lastdiff) goto set_end;
-      if (dirmult * lastdiff < olddiff) goto set_begin;
-      debugmsg = "[%u] SCSelect: global motion\n";
-      selected = global_motion;
-    }
-    if (debug) debug_printf(debugmsg, n);
-    return selected->GetFrame(n, env);
+  if (n == 0)
+  {
+  set_begin:
+    debugmsg = "[%u] SCSelect: scene begin\n";
+    selected = scene_begin;
   }
+  else if (n >= numFrames)
+  {
+  set_end:
+    debugmsg = "[%u] SCSelect: scene end\n";
+    selected = scene_end;
+  }
+  else
+  {
+    PVideoFrame sf = child->GetFrame(n, env);
+    if (lnr != n - 1) // check out-of-sequence call, calculate diff only if needed. This is why no MT is allowed (filter has global state)
+    {
+      PVideoFrame pf = child->GetFrame(n - 1, env);
+      if (isRGB) {
+        const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
+
+        lastdiff = 0;
+        // RGB: sum all planes
+        for (int p = 0; p < 3; p++)
+        {
+          int plane = planes[p];
+          lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), pf->GetReadPtr(plane), pf->GetPitch(plane), vi.width, vi.height, bits_per_pixel, useSSE2);
+        }
+      }
+      else {
+        lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), pf->GetReadPtr(PLANAR_Y), pf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+      }
+    }
+    int64_t olddiff = lastdiff;
+    {
+      PVideoFrame nf = child->GetFrame(n + 1, env); // in VapourSynth part reading beyond numFrames is guarded
+      if (isRGB) {
+        // RGB: sum all planes
+        const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
+
+        lastdiff = 0;
+        for (int p = 0; p < 3; p++)
+        {
+          int plane = planes[p];
+          lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), nf->GetReadPtr(plane), nf->GetPitch(plane), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+        }
+      }
+      else {
+        lastdiff = gdiff(sf->GetReadPtr(PLANAR_Y), sf->GetPitch(PLANAR_Y), nf->GetReadPtr(PLANAR_Y), nf->GetPitch(PLANAR_Y), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+      }
+      lnr = n;
+    }
+    if (dirmult * olddiff < lastdiff) goto set_end;
+    if (dirmult * lastdiff < olddiff) goto set_begin;
+    debugmsg = "[%u] SCSelect: global motion\n";
+    selected = global_motion;
+  }
+  if (debug) debug_printf(debugmsg, n);
+  return selected->GetFrame(n, env);
+}
 
 AVSValue __cdecl CreateSCSelect(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
@@ -2143,19 +2165,516 @@ AVSValue __cdecl CreateSCSelect(AVSValue args, void* user_data, IScriptEnvironme
     , args[DEBUG].AsBool(false), args[PLANAR].AsBool(false), args[CACHE].AsInt(2), args[GCACHE].AsInt(0), env);
 };
 
-/* New 2.6 requirement!!! */
+/* Avisynth >= 2.6 requirement!!! */
 // Declare and initialise server pointers static storage.
 const AVS_Linkage *AVS_linkage = 0;
 
-/* New 2.6 requirement!!! */
 // DLL entry point called from LoadPlugin() to setup a user plugin.
 extern "C" __declspec(dllexport) const char* __stdcall
 AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
-  /* New 2.6 requirement!!! */
   // Save the server pointers.
   AVS_linkage = vectors;
   env->AddFunction("SCSelect", "cccc[dfactor]f[debug]b[planar]b[cache]i[gcache]i", CreateSCSelect, 0);
-  env->AddFunction("RestoreMotionBlocks", creatstr, CreateRestoreMotionBlocks, 0);
-  //debug_printf(LOGO);
+  // keep sync'd with restore_motion_blocks_creatargs enum
+  env->AddFunction("RestoreMotionBlocks", "cc[neighbour]c[neighbour2]c[alternative]c[planar]b[show]b[debug]b[gmthreshold]i[mthreshold]i[noise]i[noisy]i[dist]i[tolerance]i[dmode]i[pthreshold]i[cthreshold]i[grey]b"
+  , CreateRestoreMotionBlocks, 0);
   return NULL;
+}
+
+// VapourSynth support from here
+
+// Avs/Vs common parameters ("Shared"), with VS-specific additions.
+struct RestoreMotionBlocksVSData : public RestoreMotionBlocksShared {
+  // VSNode is like PClip in Avisynth
+  VSNode* node; // in Avisynth: child
+  VSNode* restore; // from _restore
+  VSNode* after; // from neighbour
+  VSNode* before; // from neighbour2
+  VSNode* alternative; // from _alternative
+  int width;
+  int height;
+};
+
+// VapourSynth only
+// keep them equivalent: RestoreMotionBlocks::GetFrame (Avisynth) restoreMotionBlocksGetFrame (VapourSynth)
+static const VSFrame* VS_CC restoreMotionBlocksGetFrame(int n, int activationReason, void* instanceData, void** frameData, VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi) {
+  RestoreMotionBlocksVSData* d = (RestoreMotionBlocksVSData*)instanceData;
+
+  if (activationReason == arInitial) {
+    // request the very same frame numbers and clips as they appear in activationReason == arAllFramesReady
+    if ((n + d->before_offset < 0) || (n + d->after_offset > d->lastframe)) {
+      vsapi->requestFrameFilter(n, d->alternative, frameCtx);
+    }
+    else {
+      vsapi->requestFrameFilter(n, d->node, frameCtx);
+      vsapi->requestFrameFilter(n, d->restore, frameCtx);
+      vsapi->requestFrameFilter(n + d->after_offset, d->after, frameCtx);
+      vsapi->requestFrameFilter(n + d->before_offset, d->before, frameCtx);
+      vsapi->requestFrameFilter(n, d->alternative, frameCtx);
+    }
+  }
+  else if (activationReason == arAllFramesReady) {
+
+    if ((n + d->before_offset < 0) || (n + d->after_offset > d->lastframe)) 
+      return vsapi->getFrameFilter(n, d->alternative, frameCtx); // Avisynth: return alternative->GetFrame(n, env);
+
+    const VSFrame* pf = vsapi->getFrameFilter(n + d->before_offset, d->before, frameCtx); // PVideoFrame pf = before->GetFrame(n + before_offset, env);
+    const VSFrame* src = vsapi->getFrameFilter(n, d->node, frameCtx); // PVideoFrame df = child->GetFrame(n, env); // src, the filtered
+    const VSFrame* rf = vsapi->getFrameFilter(n, d->restore, frameCtx); // PVideoFrame rf = restore->GetFrame(n, env);
+    const VSFrame* nf = vsapi->getFrameFilter(n + d->after_offset, d->after, frameCtx); // PVideoFrame nf = after->GetFrame(n + after_offset, env);
+    
+    VSFrame* df = vsapi->copyFrame(src, core); // ~Avisynth's env->MakeWritable(&df);
+    vsapi->freeFrame(src);
+
+    processFrameParams frameParams;
+
+    frameParams.nextY = vsapi->getReadPtr(nf, 0); // nf->GetReadPtr(PLANAR_Y);
+    frameParams.nextPitchY = vsapi->getStride(nf, 0); // nf->GetPitch(PLANAR_Y);
+    frameParams.previousY = vsapi->getReadPtr(pf, 0); // pf->GetReadPtr(PLANAR_Y);
+    frameParams.previousPitchY = vsapi->getStride(pf, 0); // pf->GetPitch(PLANAR_Y);
+    frameParams.destY = vsapi->getWritePtr(df, 0); // df->GetWritePtr(PLANAR_Y);
+    frameParams.destPitchY = vsapi->getStride(df, 0); // df->GetPitch(PLANAR_Y);
+    frameParams.srcY = vsapi->getReadPtr(rf, 0); // rf->GetReadPtr(PLANAR_Y);
+    frameParams.srcPitchY = vsapi->getStride(rf, 0); // rf->GetPitch(PLANAR_Y);
+    if (!d->rd->grey) {
+      frameParams.destU = vsapi->getWritePtr(df, 1); // df->GetWritePtr(PLANAR_U);
+      frameParams.destV = vsapi->getWritePtr(df, 2); // df->GetWritePtr(PLANAR_V);
+      frameParams.destPitchUV = vsapi->getStride(df, 1); // df->GetPitch(PLANAR_U);
+      frameParams.srcU = vsapi->getReadPtr(rf, 1); // rf->GetReadPtr(PLANAR_U);
+      frameParams.srcV = vsapi->getReadPtr(rf, 2); // rf->GetReadPtr(PLANAR_V);
+      frameParams.srcPitchUV = vsapi->getStride(rf, 1); // rf->GetPitch(PLANAR_U);
+    }
+
+    if (d->rd->ProcessFrame(frameParams, n) > d->mthreshold) {
+      vsapi->freeFrame(rf);
+      vsapi->freeFrame(nf);
+      vsapi->freeFrame(pf);
+      return vsapi->getFrameFilter(n, d->alternative, frameCtx); // return alternative->GetFrame(n, env);
+    }
+
+    vsapi->freeFrame(rf);
+    vsapi->freeFrame(nf);
+    vsapi->freeFrame(pf);
+    return df;
+  }
+
+  return nullptr;
+}
+
+static void VS_CC restoreMotionBlocksFree(void* instanceData, VSCore* core, const VSAPI* vsapi) {
+  RestoreMotionBlocksVSData* d = (RestoreMotionBlocksVSData*)instanceData;
+  // nodes are not smart pointers like PClip in Avisynth, has to free up manually
+  vsapi->freeNode(d->node); // aka child/src in Avisynth
+  vsapi->freeNode(d->restore);
+  vsapi->freeNode(d->after);
+  vsapi->freeNode(d->before);
+  vsapi->freeNode(d->alternative);
+  delete d;
+}
+
+#define RETERROR(x) do { vsapi->mapSetError(out, (x)); 	vsapi->freeNode(d->node); vsapi->freeNode(d->restore); vsapi->freeNode(d->after); vsapi->freeNode(d->before); vsapi->freeNode(d->alternative); return; } while (0)
+
+static void VS_CC restoreMotionBlocksCreate(const VSMap* in, VSMap* out, void* userData, VSCore* core, const VSAPI* vsapi) {
+  std::unique_ptr<RestoreMotionBlocksVSData> d(new RestoreMotionBlocksVSData());
+  int err;
+
+  d->node = vsapi->mapGetNode(in, "clip", 0, &err); // src, not optional
+  const VSVideoInfo* vi = vsapi->getVideoInfo(d->node);
+
+  if (!vsh::isConstantVideoFormat(vi))
+    RETERROR("RestoreMotionBlocks: Video must be constant format!");
+
+  uint32_t fid = vsapi->queryVideoFormatID(vi->format.colorFamily, vi->format.sampleType, vi->format.bitsPerSample, vi->format.subSamplingW, vi->format.subSamplingH, core);
+
+  // Check for valid bit depths (8 to 16) and Y/YUV formats (grey, 4:2:0, 4:2:2, 4:4:4)
+  if ((vi->format.bitsPerSample < 8 || vi->format.bitsPerSample > 16) ||
+    (fid != pfYUV420P8 && fid != pfYUV420P10 && fid != pfYUV420P12 && fid != pfYUV420P14 && fid != pfYUV420P16 &&
+      fid != pfYUV422P8 && fid != pfYUV422P10 && fid != pfYUV422P12 && fid != pfYUV422P14 && fid != pfYUV422P16 &&
+      fid != pfYUV444P8 && fid != pfYUV444P10 && fid != pfYUV444P12 && fid != pfYUV444P14 && fid != pfYUV444P16 &&
+      fid != pfGray8 && fid != pfGray10 && fid != pfGray12 && fid != pfGray14 && fid != pfGray16)) {
+    RETERROR("RestoreMotionBlocks: Video must be grey, YUV 4:2:0, 4:2:2, or 4:4:4 with bit depths 8-16!");
+  }
+
+  // the other clips. Fixme: check if null
+  d->restore = vsapi->mapGetNode(in, "restore", 0, nullptr); // not optional
+  d->before = vsapi->mapGetNode(in, "neighbour", 0, &err); // optional
+  if (err) d->before = nullptr;
+  d->after = vsapi->mapGetNode(in, "neighbour2", 0, &err); // optional
+  if (err) d->after = nullptr;
+  d->alternative = vsapi->mapGetNode(in, "alternative", 0, &err); // optional
+  if (err) d->alternative = nullptr;
+
+  // Clip replacement like in RestoreMotionBlocks::RestoreMotionBlocks
+
+  // sets frame number limits and replaces undefined (null) PClips with defaults from before/after
+  d->lastframe = vi->numFrames - 1;
+  d->before_offset = d->after_offset = 0;
+  if (d->after == nullptr)
+  {
+    d->after = d->restore;
+    vsapi->addNodeRef(d->after);
+    d->before = d->restore;
+    vsapi->addNodeRef(d->before);
+    d->before_offset = -1;
+    d->after_offset = 1;
+  }
+  if (d->before == nullptr)
+  {
+    d->before = d->after;
+    vsapi->addNodeRef(d->before);
+    d->before_offset = -1;
+    d->after_offset = 1;
+  }
+  if (d->alternative == nullptr) {
+    d->alternative = d->restore;
+    vsapi->addNodeRef(d->alternative);
+  }
+
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->restore)))
+    RETERROR("RestoreMotionBlocks: Video formats or size do not match: restore (2nd clip param) clip!");
+
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->before)))
+    RETERROR("RestoreMotionBlocks: Video formats or size do not match: neighbour (before) clip!");
+  
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->after)))
+    RETERROR("RestoreMotionBlocks: Video formats or size do not match: neighbour2 (after) clip!");
+
+  d->width = vi->width;
+  d->height = vi->height;
+
+  // parameter read out like in InitRemoveDirt
+
+  int xRatioUV = 1;
+  int yRatioUV = 1;
+  if (vi->format.colorFamily == cfYUV) { // Avisynth: !vi.IsY()) !cfGray
+    xRatioUV = 1 << vi->format.subSamplingW;
+    yRatioUV = 1 << vi->format.subSamplingH;
+  }
+
+  // int dist = args[DIST].AsInt(DEFAULT_DIST);
+  int dist = vsapi->mapGetIntSaturated(in, "dist", 0, &err);
+  if (err) dist = DEFAULT_DIST;
+
+  // int tolerance = args[TOLERANCE].AsInt(DEFAULT_TOLERANCE);
+  int tolerance = vsapi->mapGetIntSaturated(in, "tolerance", 0, &err);
+  if (err) tolerance = DEFAULT_TOLERANCE;
+
+  // int dmode = args[DMODE].AsInt(0);
+  int dmode = vsapi->mapGetIntSaturated(in, "dmode", 0, &err);
+  if (err) dmode = 0;
+
+  // int mthreshold = args[MTHRES].AsInt(DEFAULT_MTHRESHOLD);
+  int mthreshold = vsapi->mapGetIntSaturated(in, "mthreshold", 0, &err);
+  if (err) mthreshold = DEFAULT_MTHRESHOLD;
+
+  // int noise = args[NOISE].AsInt(0);
+  int noise = vsapi->mapGetIntSaturated(in, "noise", 0, &err);
+  if (err) noise = 0;
+
+  // int noisy = args[NOISY].AsInt(-1);
+  int noisy = vsapi->mapGetIntSaturated(in, "noisy", 0, &err);
+  if (err) noisy = -1;
+
+  // int pthreshold = args[PTHRES].AsInt(DEFAULT_PTHRESHOLD);
+  int pthreshold = vsapi->mapGetIntSaturated(in, "pthreshold", 0, &err);
+  if (err) pthreshold = DEFAULT_PTHRESHOLD;
+
+  // int cthreshold = args[CTHRES].AsInt(pthreshold);
+  int cthreshold = vsapi->mapGetIntSaturated(in, "cthreshold", 0, &err);
+  if (err) cthreshold = pthreshold;
+
+  // bool grey = vi.IsY() || args[GREY].AsBool(false); // fallback to compulsory grey mode
+  bool grey = (1 == vsapi->mapGetIntSaturated(in, "grey", 0, &err));
+  if (err) grey = false;
+  if (vi->format.colorFamily == cfGray) grey = true;
+
+  // bool show = args[SHOW].AsBool(false);
+  bool show = (1 == vsapi->mapGetIntSaturated(in, "show", 0, &err));
+  if (err) show = false;
+
+  // bool debug = args[DEBUG].AsBool(false);
+  bool debug = (1 == vsapi->mapGetIntSaturated(in, "debug", 0, &err));
+  if (err) debug = false;
+
+  // int bitpercomponent = vi.BitsPerComponent();
+  int bitpercomponent = vi->format.bitsPerSample;
+
+  // int gmthreshold = args[GMTHRES].AsInt(DEFAULT_GMTHRESHOLD);
+  int gmthreshold = vsapi->mapGetIntSaturated(in, "gmthreshold", 0, &err);
+  if (err) gmthreshold = DEFAULT_GMTHRESHOLD;
+
+#ifdef INTEL_INTRINSICS
+  const CPUFeatures* cpuf = getCPUFeatures();
+  // fake Avisynth for reference
+  int flags = CPUF_FPU | CPUF_MMX | CPUF_INTEGER_SSE | CPUF_SSE | CPUF_SSE2; // minimum to run VS
+  if (cpuf->sse3)      flags |= CPUF_SSE3;
+  if (cpuf->ssse3)     flags |= CPUF_SSSE3;
+  if (cpuf->sse4_1)    flags |= CPUF_SSE4_1;
+  if (cpuf->sse4_2)    flags |= CPUF_SSE4_2;
+  if (cpuf->avx)       flags |= CPUF_AVX;
+  if (cpuf->avx2)      flags |= CPUF_AVX2;
+  if (cpuf->fma3)      flags |= CPUF_FMA3;
+  if (cpuf->f16c)      flags |= CPUF_F16C;
+  if (cpuf->avx512_f)  flags |= CPUF_AVX512F;
+  if (cpuf->avx512_bw) flags |= CPUF_AVX512BW;
+  if (cpuf->avx512_dq) flags |= CPUF_AVX512DQ;
+  if (cpuf->avx512_cd) flags |= CPUF_AVX512CD;
+  if (cpuf->avx512_vl) flags |= CPUF_AVX512VL;
+
+  // avs: 
+  // const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+  // const bool useSSE41 = (env->GetCPUFlags() & CPUF_SSE4_1) == CPUF_SSE4_1;
+  const bool useSSE2 = (flags & CPUF_SSE2) == CPUF_SSE2; // VS: always. Minimum req.
+  const bool useSSE41 = (flags & CPUF_SSE4_1) == CPUF_SSE4_1;
+#else
+  const bool useSSE2 = false;
+  const bool useSSE41 = false;
+#endif
+
+  d->rd = new RemoveDirt(vi->width, vi->height, dist, tolerance, dmode
+    , mthreshold, noise, noisy
+    , pthreshold, cthreshold
+    , grey, show, debug, xRatioUV, yRatioUV, bitpercomponent, useSSE2, useSSE41);
+
+
+  d->mthreshold = (gmthreshold * d->rd->hblocks * d->rd->vblocks) / 100;
+
+  VSFilterDependency deps[] = { { d->node, rpStrictSpatial},
+                                { d->restore, rpGeneral},
+                                { d->before, rpGeneral},
+                                { d->after, rpGeneral},
+                                { d->alternative, rpGeneral}
+  }; /* Depending the the request patterns you may want to change this */
+  // rpStrictSpatial is not good since (except d->node) frame numbers n+/-1 can be requested as well; restore can be cloned to the other clips.
+  vsapi->createVideoFilter(out, "RestoreMotionBlocks", vi, restoreMotionBlocksGetFrame, restoreMotionBlocksFree, fmParallel, deps, 5, d.release(), core);
+}
+
+
+// Avs/Vs common parameters ("Shared"), with VS-specific additions.
+struct SCSelectVSData : public SCSelectShared {
+  // VSNode is like PClip in Avisynth
+  VSNode* node; // in Avisynth: child
+  VSNode* scene_begin;
+  VSNode* scene_end;
+  VSNode* global_motion;
+  int width;
+  int height;
+};
+
+// VapourSynth only
+// keep them equivalent: SCSelect::GetFrame (Avisynth) sCSelectGetFrame (VapourSynth)
+static const VSFrame* VS_CC sCSelectGetFrame(int n, int activationReason, void* instanceData, void** frameData, VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi) {
+  SCSelectVSData* d = (SCSelectVSData*)instanceData;
+
+  if (activationReason == arInitial) {
+    // request the very same frame numbers and clips as they appear in activationReason == arAllFramesReady
+    vsapi->requestFrameFilter(n, d->node, frameCtx);
+    if (d->lnr != n - 1)
+      vsapi->requestFrameFilter(n - 1, d->node, frameCtx);
+    if (n + 1 < d->numFrames)
+      vsapi->requestFrameFilter(n + 1, d->node, frameCtx);
+    vsapi->requestFrameFilter(n, d->scene_begin, frameCtx);
+    vsapi->requestFrameFilter(n, d->scene_end, frameCtx);
+    vsapi->requestFrameFilter(n, d->global_motion, frameCtx);
+  }
+  else if (activationReason == arAllFramesReady) {
+
+    VSNode *selected;
+    const char* debugmsg;
+    if (n == 0)
+    {
+    set_begin:
+      debugmsg = "[%u] SCSelect: scene begin\n";
+      selected = d->scene_begin;
+    }
+    else if (n >= d->numFrames)
+    {
+    set_end:
+      debugmsg = "[%u] SCSelect: scene end\n";
+      selected = d->scene_end;
+    }
+    else
+    {
+      const VSFrame* sf = vsapi->getFrameFilter(n, d->node, frameCtx); // PVideoFrame sf = child->GetFrame(n, env);
+
+      if (d->lnr != n - 1) // check out-of-sequence call, calculate diff only if needed. This is why no MT is allowed (filter has global state)
+      {
+        const VSFrame* pf = vsapi->getFrameFilter(n - 1, d->node, frameCtx); // PVideoFrame pf = child->GetFrame(n - 1, env);
+        if (d->isRGB) {
+
+          d->lastdiff = 0;
+          // RGB: sum all planes
+          for (int p = 0; p < 3; p++)
+          {
+            d->lastdiff += gdiff(
+              vsapi->getReadPtr(sf, p), // sf->GetReadPtr(plane),
+              vsapi->getStride(sf, p), // sf->GetPitch(plane),
+              vsapi->getReadPtr(pf, p), // pf->GetReadPtr(plane), 
+              vsapi->getStride(pf, p), // pf->GetPitch(plane), 
+              d->width, d->height, d->bits_per_pixel, d->useSSE2);
+          }
+        }
+        else {
+          d->lastdiff = gdiff(
+            vsapi->getReadPtr(sf, 0), // sf->GetReadPtr(PLANAR_Y), 
+            vsapi->getStride(sf, 0), // sf->GetPitch(PLANAR_Y), 
+            vsapi->getReadPtr(pf, 0), // pf->GetReadPtr(PLANAR_Y), 
+            vsapi->getStride(pf, 0), // pf->GetPitch(PLANAR_Y), 
+            d->width, d->height, d->bits_per_pixel, d->useSSE2);
+        }
+        vsapi->freeFrame(pf);
+      }
+      int64_t olddiff = d->lastdiff;
+      {
+        const VSFrame* nf = vsapi->getFrameFilter(n + 1 < d->numFrames ? n + 1 : n, d->node, frameCtx); // PVideoFrame nf = child->GetFrame(n + 1, env);
+        
+        if (d->isRGB) {
+          // RGB: sum all planes
+
+          d->lastdiff = 0;
+          for (int p = 0; p < 3; p++)
+          {
+            d->lastdiff += gdiff(
+              vsapi->getReadPtr(sf, p), // sf->GetReadPtr(plane),
+              vsapi->getStride(sf, p), // sf->GetPitch(plane),
+              vsapi->getReadPtr(nf, p), // nf->GetReadPtr(plane), 
+              vsapi->getStride(nf, p), // nf->GetPitch(plane), 
+              d->width, d->height, d->bits_per_pixel, d->useSSE2);
+          }
+        }
+        else {
+          d->lastdiff = gdiff(
+            vsapi->getReadPtr(sf, 0), // sf->GetReadPtr(PLANAR_Y), 
+            vsapi->getStride(sf, 0), // sf->GetPitch(PLANAR_Y), 
+            vsapi->getReadPtr(nf, 0), // nf->GetReadPtr(PLANAR_Y), 
+            vsapi->getStride(nf, 0), // nf->GetPitch(PLANAR_Y), 
+            d->width, d->height, d->bits_per_pixel, d->useSSE2);
+        }
+        d->lnr = n;
+        vsapi->freeFrame(nf);
+      }
+      vsapi->freeFrame(sf);
+
+      if (d->dirmult * olddiff < d->lastdiff) goto set_end;
+      if (d->dirmult * d->lastdiff < olddiff) goto set_begin;
+      debugmsg = "[%u] SCSelect: global motion\n";
+      selected = d->global_motion;
+    }
+    if (d->debug) debug_printf(debugmsg, n);
+    
+    const VSFrame *result = vsapi->getFrameFilter(n, selected, frameCtx); // return selected->GetFrame(n, env);
+    return result;
+
+  }
+
+  return nullptr;
+}
+
+static void VS_CC sCSelectFree(void* instanceData, VSCore* core, const VSAPI* vsapi) {
+  SCSelectVSData* d = (SCSelectVSData*)instanceData;
+  // nodes are not smart pointers like PClip in Avisynth, has to free up manually
+  vsapi->freeNode(d->node); // aka child/src in Avisynth
+  vsapi->freeNode(d->scene_begin);
+  vsapi->freeNode(d->scene_end);
+  vsapi->freeNode(d->global_motion);
+  delete d;
+}
+
+#define RETERROR_SCSELECT(x) do { vsapi->mapSetError(out, (x)); 	vsapi->freeNode(d->node); vsapi->freeNode(d->scene_begin); vsapi->freeNode(d->scene_end); vsapi->freeNode(d->global_motion); return; } while (0)
+
+static void VS_CC sCSelectCreate(const VSMap* in, VSMap* out, void* userData, VSCore* core, const VSAPI* vsapi) {
+  std::unique_ptr<SCSelectVSData> d(new SCSelectVSData());
+  int err;
+
+  d->node = vsapi->mapGetNode(in, "clip", 0, &err); // src, not optional
+  const VSVideoInfo* vi = vsapi->getVideoInfo(d->node);
+
+  if (!vsh::isConstantVideoFormat(vi))
+    RETERROR_SCSELECT("SCSelect: Video must be constant format!");
+
+  // Check for valid bit depths (8 to 16 bit Integer and 32 bit float)
+  if ((vi->format.bitsPerSample < 8 || vi->format.bitsPerSample > 16) && vi->format.sampleType == stInteger)
+    RETERROR_SCSELECT("SCSelect: For integer formats only 8-16 bit is supported!");
+  if (vi->format.bitsPerSample != 32 && vi->format.sampleType == stFloat)
+    RETERROR_SCSELECT("SCSelect: For float formats only 32 bit is supported!");
+
+  d->scene_begin = vsapi->mapGetNode(in, "sbegin", 0, nullptr); // not optional
+  d->scene_end = vsapi->mapGetNode(in, "send", 0, nullptr); // not optional
+  d->global_motion = vsapi->mapGetNode(in, "gmotion", 0, nullptr); // not optional
+
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->scene_begin)))
+    RETERROR_SCSELECT("RestoreMotionBlocks: Video formats or size do not match: sbegin clip!");
+
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->scene_end)))
+    RETERROR_SCSELECT("RestoreMotionBlocks: Video formats or size do not match: send clip!");
+
+  if (!vsh::isSameVideoInfo(vi, vsapi->getVideoInfo(d->global_motion)))
+    RETERROR_SCSELECT("RestoreMotionBlocks: Video formats or size do not match: gmotion clip!");
+
+  d->width = vi->width;
+  d->height = vi->height;
+  d->isRGB = vi->format.colorFamily == cfRGB; // avs: vi.isRGB()
+  d->bits_per_pixel = vi->format.bitsPerSample; // avs: vi.BitsPerComponent()
+  d->numFrames = vi->numFrames;
+
+  // args[DFACTOR].AsFloat(4.0)
+  d->dirmult = vsapi->mapGetFloat(in, "dfactor", 0, &err);
+  if (err) d->dirmult = 4.0;
+
+  // args[DEBUG].AsBool(false)
+  d->debug = (1 == vsapi->mapGetIntSaturated(in, "debug", 0, &err));
+  if (err) d->debug = false;
+
+  // Initialize not multithreading friendly variables
+  d->lnr = -2;
+  d->lastdiff = 0;
+
+
+#ifdef INTEL_INTRINSICS
+  const CPUFeatures* cpuf = getCPUFeatures();
+  // fake Avisynth for reference
+  int flags = CPUF_FPU | CPUF_MMX | CPUF_INTEGER_SSE | CPUF_SSE | CPUF_SSE2; // minimum to run VS
+  if (cpuf->sse3)      flags |= CPUF_SSE3;
+  if (cpuf->ssse3)     flags |= CPUF_SSSE3;
+  if (cpuf->sse4_1)    flags |= CPUF_SSE4_1;
+  if (cpuf->sse4_2)    flags |= CPUF_SSE4_2;
+  if (cpuf->avx)       flags |= CPUF_AVX;
+  if (cpuf->avx2)      flags |= CPUF_AVX2;
+  if (cpuf->fma3)      flags |= CPUF_FMA3;
+  if (cpuf->f16c)      flags |= CPUF_F16C;
+  if (cpuf->avx512_f)  flags |= CPUF_AVX512F;
+  if (cpuf->avx512_bw) flags |= CPUF_AVX512BW;
+  if (cpuf->avx512_dq) flags |= CPUF_AVX512DQ;
+  if (cpuf->avx512_cd) flags |= CPUF_AVX512CD;
+  if (cpuf->avx512_vl) flags |= CPUF_AVX512VL;
+
+  // avs: 
+  // const bool useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+  // const bool useSSE41 = (env->GetCPUFlags() & CPUF_SSE4_1) == CPUF_SSE4_1;
+  d->useSSE2 = (flags & CPUF_SSE2) == CPUF_SSE2; // VS: always. Minimum req.
+#else
+  d->useSSE2 = false;
+#endif
+
+  VSFilterDependency deps[] = { { d->node, rpGeneral},
+                                { d->scene_begin, rpStrictSpatial},
+                                { d->scene_end, rpStrictSpatial},
+                                { d->global_motion, rpStrictSpatial}
+  }; /* Depending the the request patterns you may want to change this */
+  // rpStrictSpatial is not good for d->node, frame numbers n+/-1 can be requested
+  vsapi->createVideoFilter(out, "SCSelect", vi, sCSelectGetFrame, sCSelectFree, fmUnordered, deps, 4, d.release(), core);
+  // in Avisynth this is MT_SERIALIZED. Here in VapourSynth: fmUnordered
+}
+
+//////////////////////////////////////////
+// Init
+
+VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
+  vspapi->configPlugin("com.vapoursynth.removedirt", "removedirt", "RemoveDirt for Avisynth/Vapoursynth", VS_MAKE_VERSION(1, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
+  vspapi->registerFunction("RestoreMotionBlocks", "clip:vnode;restore:vnode;neighbour:vnode:opt;neighbour2:vnode:opt;alternative:vnode:opt;show:int:opt;debug:int:opt;gmthreshold:int:opt;mthreshold:int:opt;noise:int:opt;noisy:int:opt;dist:int:opt;tolerance:int:opt;dmode:int:opt;pthreshold:int:opt;cthreshold:int:opt;grey:int:opt;"
+    , "clip:vnode;", restoreMotionBlocksCreate, nullptr, plugin);
+
+  // no "planar", "cache", "gcache" like in Avisynth which kept them for script compatibility
+  vspapi->registerFunction("SCSelect", "clip:vnode;sbegin:vnode;send:vnode;gmotion:vnode;dfactor:float:opt;debug:int:opt;"
+    , "clip:vnode;", sCSelectCreate, nullptr, plugin);
 }
