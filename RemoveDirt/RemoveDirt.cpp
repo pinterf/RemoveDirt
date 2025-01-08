@@ -2001,7 +2001,7 @@ static int64_t gdiff(const BYTE *sp1, intptr_t spitch1, const BYTE *sp2, intptr_
     else
 #endif
       return calculate_sad_c<uint8_t>(sp1, spitch1, sp2, spitch2, width, height);
-  else if(bits_per_pixel <= 16)
+  else if(bits_per_pixel <= 16) // VapourSynth: "half" is not supported
 #ifdef INTEL_INTRINSICS
     if (useSSE2)
       return calculate_sad_8_or_16_sse2<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
@@ -2009,40 +2009,79 @@ static int64_t gdiff(const BYTE *sp1, intptr_t spitch1, const BYTE *sp2, intptr_
 #endif
       return calculate_sad_c<uint16_t>(sp1, spitch1, sp2, spitch2, width, height);
   else {
+    // VapourSynth: theoretical 32 bit integer is not supported
     return calculate_sad_c<float>(sp1, spitch1, sp2, spitch2, width, height);
   }
 }
 
-#define SPOINTER(p) p.operator->()
+struct SCSelectShared {
+  double dirmult;
+  bool debug;
+  bool useSSE2;
+  bool isRGB;
+  int bits_per_pixel;
+  int numFrames;
 
-class   SCSelect : public GenericVideoFilter
+  // These are handled in multithreading friendly way
+  int64_t lastdiff; // 8k image dimensions require int64 even at 8 bits
+  uint32_t lnr;
+};
+
+class SCSelect : public GenericVideoFilter, private SCSelectShared
 {
   PClip scene_begin;
   PClip scene_end;
   PClip global_motion;
-  int64_t lastdiff; // 8k image dimensions require int64 even at 8 bits
-  double dirmult;
-  bool debug;
-  uint32_t lnr;
-
-  bool useSSE2;
 
   // lastdiff and lnr variable: not MT friendly
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     return cachehints == CACHE_GET_MTMODE ? MT_SERIALIZED : 0;
   }
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+
+public:
+  SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
+    : GenericVideoFilter(clip), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion)
   {
+    dirmult = dfactor;
+    debug = _debug;
+    lnr = -2;
+    lastdiff = 0;
+    useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
+    isRGB = vi.IsRGB();
+    bits_per_pixel = vi.BitsPerComponent();
+    numFrames = vi.num_frames;
+
+    // all bit-depths are supported
+    if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA() && !vi.IsPlanarRGB() && !vi.IsPlanarRGBA())
+      env->ThrowError("SCSelect: only Y, YUV(A), planar RGB(A) clips are supported");
+
+    CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
+    CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
+    CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect", env);
+
+    // explicite cache hints for classic Avisynth 2.6
+    scene_begin->SetCacheHints(CACHE_GENERIC, 0);
+    scene_end->SetCacheHints(CACHE_GENERIC, 0);
+    if (gcache >= 0) global_motion->SetCacheHints(CACHE_GENERIC, gcache);
+    if (cache >= 0) child->SetCacheHints(CACHE_GENERIC, cache);
+  }
+};
+
+// Avisynth only
+// keep them equivalent: SCSelect::GetFrame (Avisynth) sCSelectGetFrame (VapourSynth)
+PVideoFrame SCSelect::GetFrame(int n, IScriptEnvironment* env)
+{
     PClip selected;
-    const char *debugmsg;
+  const char* debugmsg;
     if (n == 0)
     {
     set_begin:
       debugmsg = "[%u] SCSelect: scene begin\n";
       selected = scene_begin;
     }
-    else if (n >= vi.num_frames)
+  else if (n >= numFrames)
     {
     set_end:
       debugmsg = "[%u] SCSelect: scene end\n";
@@ -2050,9 +2089,8 @@ class   SCSelect : public GenericVideoFilter
     }
     else
     {
-      const bool isRGB = vi.IsRGB();
       PVideoFrame sf = child->GetFrame(n, env);
-      if (lnr != n - 1)
+    if (lnr != n - 1) // check out-of-sequence call, calculate diff only if needed. This is why no MT is allowed (filter has global state)
       {
         PVideoFrame pf = child->GetFrame(n - 1, env);
         if (isRGB) {
@@ -2063,7 +2101,7 @@ class   SCSelect : public GenericVideoFilter
           for (int p = 0; p < 3; p++)
           {
             int plane = planes[p];
-            lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), pf->GetReadPtr(plane), pf->GetPitch(plane), vi.width, vi.height, vi.BitsPerComponent(), useSSE2);
+          lastdiff += gdiff(sf->GetReadPtr(plane), sf->GetPitch(plane), pf->GetReadPtr(plane), pf->GetPitch(plane), vi.width, vi.height, bits_per_pixel, useSSE2);
           }
         }
         else {
@@ -2072,7 +2110,7 @@ class   SCSelect : public GenericVideoFilter
       }
       int64_t olddiff = lastdiff;
       {
-        PVideoFrame nf = child->GetFrame(n + 1, env);
+      PVideoFrame nf = child->GetFrame(n + 1, env); // in VapourSynth part reading beyond numFrames is guarded
         if (isRGB) {
           // RGB: sum all planes
           const int planes[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A };
@@ -2097,27 +2135,6 @@ class   SCSelect : public GenericVideoFilter
     if (debug) debug_printf(debugmsg, n);
     return selected->GetFrame(n, env);
   }
-public:
-  SCSelect(PClip clip, PClip _scene_begin, PClip _scene_end, PClip _global_motion, double dfactor, bool _debug, bool planar, int cache, int gcache, IScriptEnvironment* env)
-    : GenericVideoFilter(clip), scene_begin(_scene_begin), scene_end(_scene_end), global_motion(_global_motion), dirmult(dfactor), debug(_debug), lnr(-2)
-  {
-    // all bit-depths are supported
-
-    if (!vi.IsY() && !vi.IsYUV() && !vi.IsYUVA() && !vi.IsPlanarRGB() && !vi.IsPlanarRGBA())
-      env->ThrowError("SCSelect: only Y, YUV(A), planar RGB(A) clips are supported");
-
-    CompareVideoInfo(vi, scene_begin->GetVideoInfo(), "SCSelect", env);
-    CompareVideoInfo(vi, scene_end->GetVideoInfo(), "SCSelect", env);
-    CompareVideoInfo(vi, global_motion->GetVideoInfo(), "SCSelect", env);
-    
-    scene_begin->SetCacheHints(CACHE_GENERIC, 0);
-    scene_end->SetCacheHints(CACHE_GENERIC, 0);
-    if (gcache >= 0) global_motion->SetCacheHints(CACHE_GENERIC, 0);
-    if (cache >= 0) child->SetCacheHints(CACHE_GENERIC, cache);
-
-    useSSE2 = (env->GetCPUFlags() & CPUF_SSE2) == CPUF_SSE2;
-  }
-};
 
 AVSValue __cdecl CreateSCSelect(AVSValue args, void* user_data, IScriptEnvironment* env)
 {
